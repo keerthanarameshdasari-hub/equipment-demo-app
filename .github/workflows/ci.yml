@@ -27,3 +27,6 @@ jobs:
 
       - name: Run tests
         run: npm test -- --ci
+
+      - name: TypeScript check
+        run: npm run typecheck
