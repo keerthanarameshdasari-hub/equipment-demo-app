@@ -1,0 +1,7 @@
+# Generated output and native projects
+coverage/
+reports/
+dist/
+android/
+ios/
+vendor/

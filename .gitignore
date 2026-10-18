@@ -68,5 +68,7 @@ yarn-error.*
 /coverage
 *.tsbuildinfo
 
-# CI test output
+# CI outputs
 jest-results.json
+reports/
+dist/
