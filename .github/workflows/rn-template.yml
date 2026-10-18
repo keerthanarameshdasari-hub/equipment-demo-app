@@ -1,0 +1,48 @@
+name: Generate bare React Native template (one-time)
+
+# Temporary tooling for the Expo -> bare React Native migration.
+# Generates the official RN CLI template for the app's RN version and commits
+# it to rn-template/ so the native projects can be merged in. Deleted after use.
+on:
+  push:
+    branches: [chore/phase1-baseline]
+    paths: ['.github/workflows/rn-template.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate template
+        run: |
+          set -o pipefail
+          mkdir -p rn-template/_logs
+          CLI="npx --yes @react-native-community/cli@latest"
+          $CLI --version > rn-template/_logs/cli-version.txt 2>&1 || true
+          $CLI init --help > rn-template/_logs/init-help.txt 2>&1 || true
+          ARGS="equipDemo --version 0.86.3 --directory $RUNNER_TEMP/tpl --skip-install --skip-git-init --install-pods false"
+          if ! $CLI init $ARGS --package-name com.equipmentdemo.app 2>&1 | tee rn-template/_logs/init.txt; then
+            echo "Retrying without --package-name" | tee -a rn-template/_logs/init.txt
+            rm -rf "$RUNNER_TEMP/tpl"
+            $CLI init $ARGS 2>&1 | tee -a rn-template/_logs/init.txt
+          fi
+          rsync -a --exclude node_modules --exclude 'ios/Pods' "$RUNNER_TEMP/tpl/" rn-template/
+          find rn-template -type f -not -path '*/_logs/*' | sort > rn-template/_logs/files.txt
+
+      - name: Commit template (and logs, even on failure)
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f rn-template
+          git commit -m "chore: add RN CLI 0.86.3 template output (temporary)"
+          git push

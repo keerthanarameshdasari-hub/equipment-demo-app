@@ -5,6 +5,8 @@ name: Android baseline probe
 on:
   push:
     branches: [chore/phase1-baseline]
+    # Only rebuild when app code or native config changes.
+    paths: ['android/**', 'ios/**', 'index.*', 'App.tsx', 'lib/**', 'package.json', 'package-lock.json', 'app.json', 'babel.config.js', 'metro.config.js']
   workflow_dispatch:
 
 jobs:
