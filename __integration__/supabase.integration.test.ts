@@ -10,7 +10,6 @@ const key = env.SUPABASE_PUBLISHABLE_KEY;
 const describeLive = url && key ? describe : describe.skip;
 
 if (!url || !key) {
-  // eslint-disable-next-line no-console
   console.warn('Skipping live Supabase checks: SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY not set.');
 }
 
