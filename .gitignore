@@ -1,44 +1,69 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# Bare React Native project: android/ and ios/ are source code and ARE committed.
 
 # dependencies
 node_modules/
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+# OSX
+.DS_Store
 
-# Native
+# Xcode
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+**/.xcode.env.local
+
+# Android / IntelliJ
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
 .kotlin/
-*.orig.*
+*.apk
+*.aab
+
+# Signing material: never commit (debug.keystore is the public RN debug key)
+*.keystore
+!debug.keystore
 *.jks
 *.p8
 *.p12
 *.key
+*.pem
 *.mobileprovision
+
+# Ruby / CocoaPods
+**/Pods/
+/vendor/bundle/
 
 # Metro
 .metro-health-check*
+*.jsbundle
 
-# debug
+# logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
+# local env files (only .env.example is committed)
 .env
 .env.*
 !.env.example
 
-# typescript
+# testing / typescript
+/coverage
 *.tsbuildinfo
-
-# generated native folders
-/ios
-/android

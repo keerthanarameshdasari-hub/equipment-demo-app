@@ -1,31 +1,4 @@
 {
-  "expo": {
-    "name": "hello-world",
-    "slug": "hello-world",
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false,
-      "package": "com.equipmentdemo.app"
-    },
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "7315a998-2646-4cb0-89cf-d583cbfde99b"
-      }
-    }
-  }
+  "name": "equipDemo",
+  "displayName": "equipDemo"
 }
