@@ -48,7 +48,7 @@ App code (`App.tsx`, `lib/supabase.ts` apart from env names, tests) is unchanged
 | Jest (3 tests) | Pass |
 | `tsc --noEmit` | Pass |
 | ESLint | Pass (no findings) |
-| Android `assembleRelease` | Pending — run 39151024549 in progress |
+| Android `assembleRelease` | **Pass**: run 39151024549, Gradle 11m10s, APK 17.4 MB (arm64-v8a + x86_64) |
 | iOS | Not run: needs a macOS runner and CocoaPods (planned as an optional time-boxed job) |
 
 Local workspace: no Android SDK, no macOS, npm registry blocked. GitHub Actions is the build environment.
