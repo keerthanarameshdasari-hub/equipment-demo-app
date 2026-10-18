@@ -102,5 +102,5 @@ cd android && ./gradlew assembleDebug -PbundleJsInDebug -PreactNativeArchitectur
 
 | Check | Run |
 |---|---|
-| Successful run (checks + APK) | RUN_SUCCESS |
-| Failing check fails the workflow | RUN_FAILURE |
+| Successful run (checks + APK) | [39160037754](https://github.com/keerthanarameshdasari-hub/equipment-demo-app/actions/runs/39160037754): 40/40 tests; artifact `equipdemo-v1.1.0-debug-a0bb8e8` (28.8 MB zip); checks 40 s, APK 9 min |
+| Failing check fails the workflow | [39159571609](https://github.com/keerthanarameshdasari-hub/equipment-demo-app/actions/runs/39159571609): deliberately failing test (commit `4675924`) → tests step failed, workflow failed, Android job skipped, test reports still uploaded. Reverted in `a0bb8e8` |
