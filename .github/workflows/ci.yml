@@ -1,32 +1,45 @@
+name: CI
 
-name: React Native CI
-
+# Fast checks on every push and pull request. Uses no secrets: tests run
+# against the mock data source, never the live backend.
 on:
   push:
-    branches: [main]
+    branches: ['**']
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: Run automated tests
-    runs-on: ubuntu-latest
-
+  checks:
+    name: Lint, typecheck and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (lockfile must be in sync)
+        run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
 
-      - name: Run tests
-        run: npm test -- --ci
+      - name: Lint
+        run: .github/scripts/run-annotated.sh "ESLint" error npm run lint
 
       - name: TypeScript check
-        run: npm run typecheck
+        run: .github/scripts/run-annotated.sh "tsc" error npm run typecheck
+
+      - name: Unit and UI tests
+        run: .github/scripts/run-annotated.sh "Jest" error npm test -- --ci --json --outputFile=jest-results.json
+
+      - name: Test summary
+        if: always()
+        run: |
+          [ -f jest-results.json ] || exit 0
+          node -e "const r=require('./jest-results.json');console.log('::notice title=Test results::'+r.numPassedTests+' passed, '+r.numFailedTests+' failed, '+r.numTotalTests+' total in '+r.numTotalTestSuites+' suites')"

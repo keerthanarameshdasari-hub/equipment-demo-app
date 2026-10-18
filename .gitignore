@@ -67,3 +67,6 @@ yarn-error.*
 # testing / typescript
 /coverage
 *.tsbuildinfo
+
+# CI test output
+jest-results.json
