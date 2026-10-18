@@ -1,17 +1,30 @@
 name: CI
 
-# Fast checks on every push and pull request. Uses no secrets: tests run
-# against the mock data source, never the live backend.
+# Version 1 CI for equipDemo.
+#   checks:  install from lockfile -> secret-file guard -> lint -> typecheck -> tests
+#   android: (only if checks pass) debug APK with bundled JS -> artifact
+# Uses no secrets. Tests run against the mock data source, and the APK has no
+# Supabase config, so it runs on built-in demo data. No app store is contacted.
+
 on:
-  push:
-    branches: ['**']
-    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the older run; runs on main always finish.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
 
 jobs:
   checks:
@@ -19,27 +32,150 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      # Actions are pinned to full commit SHAs (reviewed release in the comment).
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 22
+          persist-credentials: false
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install dependencies (lockfile must be in sync)
+      - name: Guard - no environment or key files are committed
+        run: |
+          tracked=$(git ls-files | grep -E '(^|/)\.env($|\.)|\.(jks|p12|p8|pem|key)$' | grep -vE '(^|/)\.env\.example$' || true)
+          if [ -n "$tracked" ]; then
+            echo "::error title=Secret file guard::Remove these files from git: $(echo $tracked)"
+            exit 1
+          fi
+          echo "No .env or key files are tracked."
+
+      - name: Install dependencies from package-lock.json
         run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
 
       - name: Lint
+        env:
+          REPORT_FILE: reports/eslint.txt
         run: .github/scripts/run-annotated.sh "ESLint" error npm run lint
 
       - name: TypeScript check
+        env:
+          REPORT_FILE: reports/typecheck.txt
         run: .github/scripts/run-annotated.sh "tsc" error npm run typecheck
 
       - name: Unit and UI tests
-        run: .github/scripts/run-annotated.sh "Jest" error npm test -- --ci --json --outputFile=jest-results.json
+        env:
+          REPORT_FILE: reports/jest-output.txt
+        run: >-
+          .github/scripts/run-annotated.sh "Jest" error
+          npm test -- --ci --coverage --coverageReporters=text-summary --coverageReporters=lcov
+          --json --outputFile=reports/jest-results.json
 
       - name: Test summary
         if: always()
         run: |
-          [ -f jest-results.json ] || exit 0
-          node -e "const r=require('./jest-results.json');console.log('::notice title=Test results::'+r.numPassedTests+' passed, '+r.numFailedTests+' failed, '+r.numTotalTests+' total in '+r.numTotalTestSuites+' suites')"
+          [ -f reports/jest-results.json ] || { echo "No test results (tests did not run)."; exit 0; }
+          node -e '
+            const r = require("./reports/jest-results.json");
+            const line = `${r.numPassedTests} passed, ${r.numFailedTests} failed, ${r.numTotalTests} total in ${r.numTotalTestSuites} suites`;
+            console.log(`::notice title=Test results::${line}`);
+            const fs = require("fs");
+            let md = `### Test results\n\n${line}\n\n| Suite | Result | Tests |\n|---|---|---|\n`;
+            for (const s of r.testResults) {
+              const name = s.name.split("/__tests__/")[1] ?? s.name;
+              const passed = s.assertionResults.filter(a => a.status === "passed").length;
+              md += `| ${name} | ${s.status === "passed" ? "✅" : "❌"} | ${passed}/${s.assertionResults.length} |\n`;
+            }
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+          '
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports-run${{ github.run_number }}-attempt${{ github.run_attempt }}
+          path: |
+            reports/
+            coverage/lcov-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+  android:
+    name: Android debug APK
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Set up Java (with Gradle cache)
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Install dependencies from package-lock.json
+        run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
+
+      - name: Build debug APK (JS bundled, arm64 + x86_64)
+        working-directory: android
+        run: >-
+          ../.github/scripts/run-annotated.sh "Gradle" error
+          ./gradlew assembleDebug --no-daemon -PbundleJsInDebug
+          -PreactNativeArchitectures=arm64-v8a,x86_64
+
+      - name: Name the APK and record build info
+        id: package
+        run: |
+          version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
+          code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
+          sha=${GITHUB_SHA::7}
+          base="equipdemo-v${version}-debug-${sha}"
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/${base}.apk"
+          (cd dist && sha256sum "${base}.apk" > SHA256SUMS.txt)
+          cat > dist/build-info.json <<EOF
+          {
+            "app": "equipDemo",
+            "variant": "debug",
+            "versionName": "${version}",
+            "versionCode": ${code},
+            "commit": "${GITHUB_SHA}",
+            "ref": "${GITHUB_REF}",
+            "event": "${GITHUB_EVENT_NAME}",
+            "runNumber": ${GITHUB_RUN_NUMBER},
+            "runUrl": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "dataSource": "demo data (no Supabase configuration in CI builds)",
+            "signing": "Android debug key (internal testing only)"
+          }
+          EOF
+          echo "artifact=${base}" >> "$GITHUB_OUTPUT"
+          size=$(du -h "dist/${base}.apk" | cut -f1)
+          echo "::notice title=APK::${base}.apk (${size})"
+          {
+            echo "### Android artifact"
+            echo ""
+            echo "\`${base}.apk\` (${size}), SHA-256 \`$(cut -d' ' -f1 dist/SHA256SUMS.txt)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

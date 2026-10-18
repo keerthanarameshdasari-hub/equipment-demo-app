@@ -52,6 +52,12 @@ react {
 
     /* Autolinking */
     autolinkLibrariesWithApp()
+
+    // CI passes -PbundleJsInDebug so the debug APK contains the JS bundle and
+    // runs without the Metro dev server. Local `npm run android` is unaffected.
+    if (project.hasProperty("bundleJsInDebug")) {
+        debuggableVariants = []
+    }
 }
 
 /**
