@@ -1,0 +1,14 @@
+- Downloading template
+✔ Downloading template
+- Copying template
+✔ Copying template
+- Processing template
+✔ Processing template
+✔ Dependencies installation skipped
+[0m
+  
+  [32mRun instructions for [1mAndroid[22m[39m:
+    • Have an Android emulator running (quickest way to get started), or a device connected.
+    • cd "/home/runner/work/_temp/tpl" && npx react-native run-android
+  
+  [0m
