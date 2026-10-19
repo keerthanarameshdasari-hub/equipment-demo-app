@@ -12,6 +12,7 @@ name: Release candidate
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+']
+    branches: [feature/release-versioning] # TEMPORARY: rehearsal before merge; remove
   workflow_dispatch:
 
 permissions:
