@@ -17,7 +17,11 @@ if [ -n "${REPORT_FILE:-}" ]; then
   cp "$log" "$REPORT_FILE"
 fi
 if [ "$rc" -ne 0 ]; then
-  msg="$(tail -c 3500 "$log" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{printf "%s%%0A", $0}')"
+  # Prefer the cause (Gradle's "What went wrong", Jest/tsc errors) over the tail of a stack trace.
+  cause="$(awk '/^\* What went wrong:/{p=1} /^\* Try:/{p=0} p' "$log" | head -c 2500)"
+  excerpt="$(grep -E -m 20 '(^e: |error:|Error:|FAILURE|failed|Exception:)' "$log" | grep -v '^\s*at ' | head -c 1500)"
+  [ -n "$cause$excerpt" ] || excerpt="$(tail -c 3500 "$log")"
+  msg="$(printf '%s\n%s' "$cause" "$excerpt" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk '{printf "%s%%0A", $0}')"
   echo "::${level} title=${title} (exit ${rc})::${msg}"
 fi
 [ "$level" = "warning" ] && exit 0
