@@ -1,0 +1,216 @@
+name: Release candidate
+
+# Builds a release candidate (RC) of equipDemo, exactly once per RC tag:
+#   checks (same as CI) -> release APK with a unique build number -> manifest +
+#   SHA-256 -> CI artifact (90 days) -> GitHub pre-release holding the same files.
+# Promotion to later stages (promote.yml) re-verifies these files and never rebuilds.
+# See docs/RELEASES.md. No app store is contacted.
+#
+# Start a release candidate:  git tag v1.1.1-rc.1 && git push origin v1.1.1-rc.1
+# Rehearsal (no tag, no GitHub Release): Actions -> Release candidate -> Run workflow
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release build at a time, never cancelled, so build numbers stay ordered.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
+  RETENTION_DAYS: '90'
+
+jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+    with:
+      build-debug-apk: false
+
+  build:
+    name: Build release candidate
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      rc-tag: ${{ steps.identity.outputs.rc_tag }}
+      rehearsal: ${{ steps.identity.outputs.rehearsal }}
+      build-number: ${{ steps.identity.outputs.build_number }}
+      artifact: ${{ steps.manifest.outputs.artifact }}
+      sha256: ${{ steps.manifest.outputs.sha256 }}
+      title: ${{ steps.manifest.outputs.title }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Identify the candidate and assign its build number
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            rc_tag="$GITHUB_REF_NAME"; rehearsal=false
+          else
+            rc_tag="v${version}-rc.1"; rehearsal=true
+            echo "::notice title=Rehearsal::Not a tag push: building as ${rc_tag} for rehearsal only (no GitHub Release)."
+          fi
+          node scripts/release/cli.js version-check --tag "$rc_tag"
+
+          final_tag="v${version}"
+          if [ "$rehearsal" = false ] && gh api "repos/$GH_REPO/git/ref/tags/$final_tag" --silent 2>/dev/null; then
+            echo "::error title=Version already released::$final_tag already exists. Bump the version (npm run version:set X.Y.Z) before a new release candidate."
+            exit 1
+          fi
+
+          # Ledger: build numbers already used by GitHub Releases ("... (build N)").
+          gh release list --limit 200 --json name --jq '.[].name' > previous-titles.txt
+          build_number=$(node scripts/release/cli.js build-number \
+            --run "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --previous-titles previous-titles.txt)
+
+          {
+            echo "version=$version"
+            echo "rc_tag=$rc_tag"
+            echo "rehearsal=$rehearsal"
+            echo "build_number=$build_number"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java (with Gradle cache)
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Install dependencies from package-lock.json
+        run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
+
+      - name: Build release APK (build ${{ steps.identity.outputs.build_number }})
+        working-directory: android
+        run: >-
+          ../.github/scripts/run-annotated.sh "Gradle" error
+          ./gradlew assembleRelease --no-daemon
+          -PreactNativeArchitectures=arm64-v8a,x86_64
+          -PappVersionCode=${{ steps.identity.outputs.build_number }}
+
+      - name: Create manifest, checksum and release record
+        id: manifest
+        env:
+          RC_TAG: ${{ steps.identity.outputs.rc_tag }}
+          BUILD_NUMBER: ${{ steps.identity.outputs.build_number }}
+          REHEARSAL: ${{ steps.identity.outputs.rehearsal }}
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
+          "$aapt2" dump badging "$apk" | head -1 | tee badging.txt
+
+          prefix=""; [ "$REHEARSAL" = true ] && prefix="rehearsal-"
+          artifact="${prefix}equipdemo-${RC_TAG}-build${BUILD_NUMBER}"
+          java_version=$(java -version 2>&1 | head -1)
+
+          result=$(node scripts/release/cli.js manifest \
+            --apk "$apk" --badging badging.txt --rc-tag "$RC_TAG" \
+            --build-number "$BUILD_NUMBER" --out dist \
+            --ci-artifact "$artifact" --retention-days "$RETENTION_DAYS" \
+            --java "$java_version")
+          sha256=$(node -p "JSON.parse(process.argv[1]).sha256" "$result")
+          version=$(node -p "JSON.parse(process.argv[1]).version" "$result")
+
+          # Self-check: verify what we are about to store.
+          node scripts/release/cli.js verify dist --commit "$GITHUB_SHA" --version "$version"
+
+          {
+            echo "artifact=$artifact"
+            echo "sha256=$sha256"
+            echo "title=equipDemo ${RC_TAG#v} (build ${BUILD_NUMBER})"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice title=Release candidate::${RC_TAG} build ${BUILD_NUMBER}, SHA-256 ${sha256}"
+          {
+            echo "### Release candidate ${RC_TAG}$( [ "$REHEARSAL" = true ] && echo ' (rehearsal)')"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| App version | \`${version}\` |"
+            echo "| Build number (Android versionCode / iOS build) | \`${BUILD_NUMBER}\` |"
+            echo "| Source commit | \`${GITHUB_SHA}\` |"
+            echo "| Artifact | \`$(ls dist/*.apk | xargs -n1 basename)\` |"
+            echo "| SHA-256 | \`${sha256}\` |"
+            echo "| CI artifact | \`${artifact}\` (kept ${RETENTION_DAYS} days) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Store candidate in CI artifact storage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.manifest.outputs.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: ${{ env.RETENTION_DAYS }}
+
+  record:
+    name: Record candidate (GitHub pre-release)
+    needs: build
+    if: needs.build.outputs.rehearsal == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub pre-release
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the stored candidate (digest-checked)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: rc
+
+      - name: Verify the stored candidate before publishing its record
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          node scripts/release/cli.js verify rc --commit "$GITHUB_SHA"
+          actual=$(sha256sum rc/*.apk | cut -d' ' -f1)
+          [ "$actual" = "$EXPECTED_SHA256" ] || { echo "::error::Stored APK differs from the build output"; exit 1; }
+
+      - name: Create GitHub pre-release with the candidate files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RC_TAG: ${{ needs.build.outputs.rc-tag }}
+          TITLE: ${{ needs.build.outputs.title }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+          BUILD_NUMBER: ${{ needs.build.outputs.build-number }}
+        run: |
+          cat > notes.md <<EOF
+          Release candidate **${RC_TAG}**, build **${BUILD_NUMBER}**. Stage: **candidate**.
+
+          | | |
+          |---|---|
+          | Source commit | \`${GITHUB_SHA}\` |
+          | APK | \`$(ls rc/*.apk | xargs -n1 basename)\` |
+          | SHA-256 | \`${SHA256}\` |
+          | Built by | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
+
+          Verify a download: \`node scripts/release/cli.js verify <folder>\` or compare \`SHA256SUMS.txt\`.
+          Promote without rebuilding: Actions → Promote release candidate. Internal distribution only; no app store.
+          EOF
+          gh release create "$RC_TAG" rc/* --verify-tag --prerelease --title "$TITLE" --notes-file notes.md

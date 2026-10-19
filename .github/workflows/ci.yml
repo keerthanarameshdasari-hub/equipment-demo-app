@@ -1,8 +1,11 @@
 name: CI
 
-# Version 1 CI for equipDemo.
-#   checks:  install from lockfile -> secret-file guard -> lint -> typecheck -> tests
-#   android: (only if checks pass) debug APK with bundled JS -> artifact
+# CI for equipDemo.
+#   checks:  secret-file guard -> version consistency -> npm ci -> lint -> typecheck -> tests
+#   android: (only if checks pass) development APK with bundled JS -> artifact
+# Development builds use the ".dev" app ID, versionCode = CI run number and
+# versionName "<version>-dev.<run>", separate from release numbering (docs/RELEASES.md).
+# Also called by release.yml (workflow_call) to run the same checks before a release build.
 # Uses no secrets. Tests run against the mock data source, and the APK has no
 # Supabase config, so it runs on built-in demo data. No app store is contacted.
 
@@ -12,6 +15,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      build-debug-apk:
+        description: Also build the development APK
+        type: boolean
+        default: true
 
 # Least privilege: the workflow only needs to read the repository.
 permissions:
@@ -52,6 +61,9 @@ jobs:
             exit 1
           fi
           echo "No .env or key files are tracked."
+
+      - name: Version consistency (package.json, Android, iOS)
+        run: node scripts/release/cli.js version-check
 
       - name: Install dependencies from package-lock.json
         run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
@@ -106,6 +118,8 @@ jobs:
   android:
     name: Android debug APK
     needs: checks
+    # Skipped when release.yml calls this workflow (it builds the release APK itself).
+    if: inputs.build-debug-apk != false
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -130,12 +144,14 @@ jobs:
       - name: Install dependencies from package-lock.json
         run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
 
-      - name: Build debug APK (JS bundled, arm64 + x86_64)
+      - name: Build development APK (JS bundled, arm64 + x86_64)
         working-directory: android
         run: >-
           ../.github/scripts/run-annotated.sh "Gradle" error
           ./gradlew assembleDebug --no-daemon -PbundleJsInDebug
           -PreactNativeArchitectures=arm64-v8a,x86_64
+          -PappVersionCode=${{ github.run_number }}
+          -PdevVersionSuffix=-dev.${{ github.run_number }}
 
       - name: Name the APK and record build info
         id: package
@@ -144,16 +160,24 @@ jobs:
           # branch's real head commit so the artifact maps to findable source.
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          version=$(sed -n 's/.*versionName "\(.*\)".*/\1/p' android/app/build.gradle)
-          code=$(sed -n 's/.*versionCode \([0-9]*\).*/\1/p' android/app/build.gradle)
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          # Read the identity from the APK itself, not from source files.
+          aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
+          badging=$("$aapt2" dump badging "$apk" | head -1)
+          echo "$badging"
+          app_id=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
+          code=$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" <<< "$badging")
+          version=$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$badging")
           sha=${SOURCE_SHA::7}
-          base="equipdemo-v${version}-debug-${sha}"
+          base="equipdemo-v${version}-${sha}"
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk "dist/${base}.apk"
+          cp "$apk" "dist/${base}.apk"
           (cd dist && sha256sum "${base}.apk" > SHA256SUMS.txt)
           cat > dist/build-info.json <<EOF
           {
             "app": "equipDemo",
+            "channel": "development",
+            "applicationId": "${app_id}",
             "variant": "debug",
             "versionName": "${version}",
             "versionCode": ${code},

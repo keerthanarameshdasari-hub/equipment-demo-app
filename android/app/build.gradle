@@ -1,4 +1,18 @@
 apply plugin: "com.android.application"
+
+import groovy.json.JsonSlurper
+
+/**
+ * Versioning (see docs/RELEASES.md):
+ * - versionName = "version" in package.json (single source of truth, user-facing).
+ * - versionCode = build number, passed by CI with -PappVersionCode=<n>.
+ *   Local builds use 1. Release candidates use 1000+ (assigned by the release workflow).
+ * - Debug builds get the ".dev" application ID and a "-dev" name suffix, so they
+ *   install beside release builds and never share their numbering.
+ */
+def appVersionName = new JsonSlurper().parse(file("../../package.json")).version
+def appVersionCode = (project.findProperty("appVersionCode") ?: "1").toString().toInteger()
+def devVersionSuffix = (project.findProperty("devVersionSuffix") ?: "-dev").toString()
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
@@ -88,8 +102,8 @@ android {
         applicationId "com.equipmentdemo.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode appVersionCode
+        versionName appVersionName
     }
     signingConfigs {
         debug {
@@ -102,6 +116,8 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            applicationIdSuffix ".dev"
+            versionNameSuffix devVersionSuffix
         }
         release {
             // Caution! In production, you need to generate your own keystore file.

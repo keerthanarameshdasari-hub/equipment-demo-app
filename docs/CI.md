@@ -40,10 +40,12 @@ debug APK contains the JavaScript and runs without a dev server. It builds two C
 
 | Artifact name | Contents | Kept for |
 |---|---|---|
-| `equipdemo-v<version>-debug-<commit>` | `equipdemo-v<version>-debug-<commit>.apk`, `SHA256SUMS.txt`, `build-info.json` | 30 days |
+| `equipdemo-v<version>-dev.<run>-<commit>` | `equipdemo-v<version>-dev.<run>-<commit>.apk`, `SHA256SUMS.txt`, `build-info.json` | 30 days |
 | `test-reports-run<n>-attempt<m>` | `reports/` (ESLint, tsc and Jest output, `jest-results.json`) and `coverage/lcov-report/` (HTML) | 14 days |
 
 `<commit>` is the first 7 characters of the commit SHA, so every APK can be traced to exact source.
+Development APKs install as a separate app, **equipDemo Dev** (`com.equipmentdemo.app.dev`), with
+versionCode = CI run number. Release candidates are built by a separate workflow; see [RELEASES.md](RELEASES.md).
 `build-info.json` records version, commit, branch, run link and build time.
 Test reports are uploaded even when tests fail.
 
