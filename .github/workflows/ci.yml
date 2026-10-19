@@ -118,8 +118,9 @@ jobs:
   android:
     name: Android debug APK
     needs: checks
-    # Skipped when release.yml calls this workflow (it builds the release APK itself).
-    if: inputs.build-debug-apk != false
+    # Skipped only when release.yml calls this workflow with build-debug-apk: false.
+    # (Compared as text: GitHub coerces a missing input and `false` both to 0.)
+    if: format('{0}', inputs.build-debug-apk) != 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
