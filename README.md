@@ -75,3 +75,4 @@ docs/                   baseline, Supabase and CI documentation
 | `v1.1.0` | Version 1: bare React Native app with Supabase fetch and submit |
 | `v1.1.1-rc.N` → `v1.1.1` | Version 1 release candidates and the approved release, built by the release pipeline ([docs/RELEASES.md](docs/RELEASES.md)) |
 | `v1.1.2-rc.N` → `v1.1.2` | Version 1 promoted through all six stages ([docs/STAGES.md](docs/STAGES.md)) |
+| `v2.0.0-rc.N` → `v2.0.0` | **Version 2**: search with result count ([docs/VERSION2.md](docs/VERSION2.md)) |

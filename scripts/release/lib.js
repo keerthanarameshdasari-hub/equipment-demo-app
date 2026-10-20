@@ -277,7 +277,49 @@ function appendStage(record, entry) {
   return { ...record, stages: [...record.stages, entry] };
 }
 
+/**
+ * Compares two release records (e.g. Version 1 and Version 2). Returns a table
+ * of differences and a list of consistency findings; `problems` is empty when
+ * the newer record is a proper successor (new binary, higher build number,
+ * same gates passed, one binary per record).
+ */
+function compareRecords(older, newer) {
+  const stageNames = r => r.stages.map(s => s.stage);
+  const kinds = r => r.stages.map(s => `${s.stage}:${s.kind || '-'}`).join(' → ');
+  const approvers = r => [...new Set(r.stages.flatMap(s => s.approvedBy || []))].join(', ') || '-';
+  const rows = [
+    ['App version', older.version, newer.version],
+    ['Build number', older.buildNumber, newer.buildNumber],
+    ['Release candidate', older.releaseCandidate, newer.releaseCandidate],
+    ['Source commit', older.source.commit, newer.source.commit],
+    ['Artifact', older.artifact.file, newer.artifact.file],
+    ['SHA-256', older.artifact.sha256, newer.artifact.sha256],
+    ['Stages', kinds(older), kinds(newer)],
+    ['Approvers', approvers(older), approvers(newer)],
+    ['First stage at', older.stages[0]?.at, newer.stages[0]?.at],
+    ['Last stage at', older.stages.at(-1)?.at, newer.stages.at(-1)?.at],
+  ];
+  const problems = [];
+  const findings = [];
+  const check = (ok, good, bad) => (ok ? findings.push(good) : problems.push(bad));
+  check(newer.version !== older.version, 'Different app version', 'Same app version');
+  check(newer.buildNumber > older.buildNumber, 'Build number increased', 'Build number did not increase');
+  check(newer.artifact.sha256 !== older.artifact.sha256, 'New binary (different SHA-256)', 'Same binary as before');
+  check(newer.source.commit !== older.source.commit, 'Different source commit', 'Same source commit');
+  for (const [label, r] of [['older', older], ['newer', newer]]) {
+    check(
+      r.stages.every(s => s.artifactSha256 === r.artifact.sha256),
+      `${label}: one binary through every stage`,
+      `${label}: a stage recorded a different SHA-256`,
+    );
+  }
+  const same = JSON.stringify(stageNames(older)) === JSON.stringify(stageNames(newer));
+  check(same, `Same release gates passed: ${stageNames(newer).join(' → ')}`, `Different gates: ${stageNames(older).join(' → ')} vs ${stageNames(newer).join(' → ')}`);
+  return { rows, findings, problems };
+}
+
 module.exports = {
+  compareRecords,
   RELEASE_BUILD_BASE,
   STAGES,
   appendStage,

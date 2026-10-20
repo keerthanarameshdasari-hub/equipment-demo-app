@@ -172,3 +172,35 @@ describe('stage definitions', () => {
     expect(APPROVAL_STAGES).toEqual(['QA', 'UAT', 'PRE-PROD', 'PROD']);
   });
 });
+
+describe('compareRecords (Version 1 vs Version 2)', () => {
+  const record = (version, buildNumber, sha, commit) => ({
+    version,
+    buildNumber,
+    releaseCandidate: `v${version}-rc.1`,
+    source: { commit },
+    artifact: { file: `app-${version}.apk`, sha256: sha },
+    stages: ['DEV', 'SIT', 'QA', 'UAT', 'PRE-PROD', 'PROD'].map(stage => ({
+      stage,
+      kind: 'actual',
+      artifactSha256: sha,
+      approvedBy: ['owner'],
+      at: 't',
+    })),
+  });
+
+  test('a proper successor has no problems', () => {
+    const { problems, findings } = lib.compareRecords(record('1.1.2', 1041, 'a'.repeat(64), 'c1'), record('2.0.0', 1051, 'b'.repeat(64), 'c2'));
+    expect(problems).toEqual([]);
+    expect(findings).toContain('Same release gates passed: DEV → SIT → QA → UAT → PRE-PROD → PROD');
+  });
+
+  test('flags a reused build number, binary, or skipped gate', () => {
+    const newer = record('2.0.0', 1041, 'a'.repeat(64), 'c2');
+    newer.stages = newer.stages.slice(0, 3);
+    const { problems } = lib.compareRecords(record('1.1.2', 1041, 'a'.repeat(64), 'c1'), newer);
+    expect(problems.join('\n')).toMatch(/Build number did not increase/);
+    expect(problems.join('\n')).toMatch(/Same binary/);
+    expect(problems.join('\n')).toMatch(/Different gates/);
+  });
+});

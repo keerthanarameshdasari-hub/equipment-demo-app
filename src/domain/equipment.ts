@@ -100,3 +100,32 @@ export function toEquipment(item: Equipment): Equipment {
 export function formatPricePerHour(price: number): string {
   return `₹${price.toLocaleString('en-IN')} / hour`;
 }
+
+/** Normalises text for matching: case-insensitive, single spaces. */
+function normaliseForSearch(text: string): string {
+  return text.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Version 2: filters already-loaded equipment by name. Every word of the query
+ * must appear in the name (any order). An empty query returns all items.
+ * Pure and client-side: no extra backend request.
+ */
+export function filterEquipment(items: Equipment[], query: string): Equipment[] {
+  const words = normaliseForSearch(query).split(' ').filter(Boolean);
+  if (words.length === 0) {
+    return items;
+  }
+  return items.filter(item => {
+    const name = normaliseForSearch(item.name);
+    return words.every(word => name.includes(word));
+  });
+}
+
+/** Version 2: the result count shown above the list. */
+export function describeCount(shown: number, total: number): string {
+  if (shown === total) {
+    return total === 1 ? '1 item' : `${total} items`;
+  }
+  return `Showing ${shown} of ${total}`;
+}
