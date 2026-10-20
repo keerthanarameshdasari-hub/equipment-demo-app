@@ -6,10 +6,16 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { formatPricePerHour, type Equipment } from '../domain/equipment';
+import {
+  describeCount,
+  filterEquipment,
+  formatPricePerHour,
+  type Equipment,
+} from '../domain/equipment';
 import { toUserMessage } from '../data/DataError';
 import { useEquipmentRepository } from '../data/RepositoryContext';
 import type { RootStackParamList } from '../navigation/types';
@@ -24,6 +30,8 @@ export function HomeScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Version 2: client-side search over the loaded list.
+  const [query, setQuery] = useState('');
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh') => {
@@ -63,6 +71,8 @@ export function HomeScreen({ navigation, route }: Props) {
     setNotice(null);
     load('refresh');
   };
+
+  const visibleItems = filterEquipment(items ?? [], query);
 
   const header = (
     <View style={styles.header}>
@@ -109,6 +119,38 @@ export function HomeScreen({ navigation, route }: Props) {
           {error}
         </Text>
       ) : null}
+      {items && items.length > 0 ? (
+        <View style={styles.searchRow}>
+          <TextInput
+            testID="search-input"
+            accessibilityLabel="Search equipment"
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search equipment"
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+            returnKeyType="search"
+          />
+          {query ? (
+            <Pressable
+              testID="clear-search"
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              onPress={() => setQuery('')}
+              style={styles.clearButton}
+            >
+              <Text style={styles.clearText}>Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      {items && items.length > 0 ? (
+        <Text testID="result-count" style={styles.count}>
+          {describeCount(visibleItems.length, items.length)}
+        </Text>
+      ) : null}
     </View>
   );
 
@@ -151,13 +193,20 @@ export function HomeScreen({ navigation, route }: Props) {
     <FlatList
       style={styles.container}
       contentContainerStyle={styles.listContent}
-      data={items ?? []}
+      data={visibleItems}
       keyExtractor={item => String(item.id)}
       ListHeaderComponent={header}
+      keyboardShouldPersistTaps="handled"
       ListEmptyComponent={
-        <Text testID="empty-message" style={[styles.muted, styles.empty]}>
-          No equipment yet. Add the first one.
-        </Text>
+        items && items.length > 0 ? (
+          <Text testID="no-match-message" style={[styles.muted, styles.empty]}>
+            No equipment matches “{query.trim()}”.
+          </Text>
+        ) : (
+          <Text testID="empty-message" style={[styles.muted, styles.empty]}>
+            No equipment yet. Add the first one.
+          </Text>
+        )
       }
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       renderItem={({ item }) => (
@@ -210,6 +259,21 @@ const styles = StyleSheet.create({
   name: { fontSize: 18, fontWeight: '600', marginBottom: 8, color: colors.text },
   price: { fontSize: 16, color: colors.price, marginBottom: 8 },
   link: { color: colors.primary, fontWeight: '600' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  searchInput: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.text,
+  },
+  clearButton: { paddingHorizontal: 8, paddingVertical: 10 },
+  clearText: { color: colors.primary, fontWeight: '600' },
+  count: { color: colors.muted, fontSize: 14 },
   button: {
     backgroundColor: colors.primary,
     paddingHorizontal: 18,

@@ -8,6 +8,7 @@
  *   node scripts/release/cli.js verify DIR [--commit SHA] [--version X.Y.Z]
  *   node scripts/release/cli.js check-stage --record FILE --stage STAGE --sha256 HEX
  *   node scripts/release/cli.js stage-info --stage STAGE
+ *   node scripts/release/cli.js compare-records OLDER.json NEWER.json
  *   node scripts/release/cli.js promote --record FILE --stage STAGE --sha256 HEX --by NAME --run-url URL
  *        [--approved-by NAMES] [--checks-file FILE] [--notes TEXT]
  */
@@ -200,6 +201,27 @@ const commands = {
     lib.assertCanPromote(record, required(args, 'stage'), required(args, 'sha256'));
     const stage = getStage(args.stage);
     console.log(`✓ ${record.releaseCandidate} may enter ${stage.name} (${stage.kind})`);
+  },
+
+  'compare-records'(args) {
+    const [, olderFile, newerFile] = args._;
+    if (!olderFile || !newerFile) {
+      throw new Error('Usage: compare-records OLDER_RECORD.json NEWER_RECORD.json');
+    }
+    const older = readJson(olderFile);
+    const newer = readJson(newerFile);
+    const { rows, findings, problems } = lib.compareRecords(older, newer);
+    const lines = [`| | ${older.version} | ${newer.version} |`, '|---|---|---|'];
+    for (const [label, a, b] of rows) {
+      lines.push(`| ${label} | ${a === b ? a : `\`${a}\``} | ${a === b ? b : `**\`${b}\`**`} |`);
+    }
+    console.log(lines.join('\n'));
+    console.log('');
+    findings.forEach(f => console.log(`- ✓ ${f}`));
+    problems.forEach(p => console.log(`- ✗ ${p}`));
+    if (problems.length) {
+      process.exitCode = 1;
+    }
   },
 
   'stage-info'(args) {

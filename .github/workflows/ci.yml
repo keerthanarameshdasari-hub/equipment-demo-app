@@ -1,7 +1,8 @@
 name: CI
 
 # CI for equipDemo.
-#   checks:  secret-file guard -> version consistency -> npm ci -> lint -> typecheck -> tests
+#   checks:    secret-file guard -> version consistency -> npm ci -> lint -> typecheck -> tests
+#   v1-compat: Version 1's own tests at its release tag, and the same tests run against the current code
 #   android: (only if checks pass) development APK with bundled JS -> artifact
 # Development builds use the ".dev" app ID, versionCode = CI run number and
 # versionName "<version>-dev.<run>", separate from release numbering (docs/RELEASES.md).
@@ -117,6 +118,52 @@ jobs:
             coverage/lcov-report/
           if-no-files-found: warn
           retention-days: 14
+
+  v1-compat:
+    name: Version 1 compatibility
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # The last approved Version 1 release. Its tests are the compatibility baseline.
+      V1_TAG: v1.1.2
+    steps:
+      - name: Check out current code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check out Version 1 (${{ env.V1_TAG }})
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.V1_TAG }}
+          persist-credentials: false
+          path: v1
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            v1/package-lock.json
+
+      - name: Version 1 still passes its original tests (V1 code + V1 tests)
+        working-directory: v1
+        run: |
+          npm ci --no-audit --no-fund
+          ../.github/scripts/run-annotated.sh "V1 tests on V1" error npm test -- --ci --json --outputFile=../v1-on-v1.json
+          node -e 'const r=require("../v1-on-v1.json");console.log(`::notice title=Version 1 tests on Version 1 (${process.env.V1_TAG})::${r.numPassedTests} passed, ${r.numFailedTests} failed in ${r.numTotalTestSuites} suites`)'
+
+      - name: Version 1's original tests pass against the current code (backward compatibility)
+        run: |
+          npm ci --no-audit --no-fund
+          for f in v1/__tests__/*.test.*; do cp "$f" "__tests__/v1-$(basename "$f")"; done
+          ls __tests__/v1-*
+          .github/scripts/run-annotated.sh "V1 tests on current code" error \
+            npx jest --ci --testPathPattern '__tests__/v1-' --modulePathIgnorePatterns '<rootDir>/v1/' --json --outputFile=v1-on-current.json
+          node -e 'const r=require("./v1-on-current.json");console.log(`::notice title=Version 1 tests on current code::${r.numPassedTests} passed, ${r.numFailedTests} failed in ${r.numTotalTestSuites} suites`)'
 
   android:
     name: Android debug APK
