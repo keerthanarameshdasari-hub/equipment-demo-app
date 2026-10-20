@@ -104,7 +104,7 @@ still real; it is the *environment* that is shared or absent.
 ### PROD (actual)
 
 - **Purpose:** Release: mark the candidate as the approved production version.
-- **What it is in this demo:** ACTUAL: final tag and GitHub Release with the identical binary. Store publishing is SIMULATED, disabled by default, and runs only when explicitly requested and enabled for PROD.
+- **What it is in this demo:** ACTUAL: final tag and GitHub Release with the identical binary. Store publishing is a separate, explicitly approved step (publish.yml); with the mock adapter it is SIMULATED.
 - **Required tests:**
   - Artifact integrity
   - Read-only production smoke check (no data written)
@@ -112,7 +112,7 @@ still real; it is the *environment* that is shared or absent.
 - **Exit criteria:** Approved; final tag and release created from the same files.
 - **Approver:** Release manager + product owner (demo: repository owner)
 - **Backend / configuration target:** Supabase (PROD environment variables; read-only smoke check, no writes).
-- **Release evidence:** Final GitHub Release, complete release-record.json, (simulated) store submission receipt if requested.
+- **Release evidence:** Final GitHub Release, complete release-record.json; publish logs if publish.yml is run.
 
 ## How a promotion runs (`.github/workflows/promote.yml`)
 
@@ -134,7 +134,7 @@ from the record and the next stage's *verify* job stops with
 | `QA` | yes | `main` | — | — |
 | `UAT` | yes | `main` | — | — |
 | `PRE-PROD` | yes | `main` | `SUPABASE_URL` | `SUPABASE_PUBLISHABLE_KEY` |
-| `PROD` | yes | `main` | `SUPABASE_URL`, `PUBLISHING_ENABLED` (`false`) | `SUPABASE_PUBLISHABLE_KEY` |
+| `PROD` | yes | `main` | `SUPABASE_URL` | `SUPABASE_PUBLISHABLE_KEY` |
 
 - Each environment's secret is only given to a job that runs in that environment, and only after its
   approval. A SIT job cannot read PROD's secret.
@@ -152,15 +152,14 @@ off. A real team would list different people per environment and turn it on.
 
 ## Production publishing is off unless explicitly approved
 
-Reaching PROD creates the final tag and GitHub Release (an internal release). A store submission
-happens only if **all three** are true:
+Reaching PROD creates the final tag and GitHub Release (an internal release). It does **not** publish
+to any store. Store publishing is a separate workflow, `publish.yml`, behind a replaceable publishing
+adapter (see [PUBLISHING.md](PUBLISHING.md)):
 
-1. The PROD run was started with **publish_to_store** ticked.
-2. The PROD environment variable `PUBLISHING_ENABLED` is `true` (default: `false`).
-3. A PROD reviewer approved the run.
-
-Even then, the submission is **SIMULATED**: a `store-submission-SIMULATED.json` receipt is attached to
-the release and no store API is called.
+- The **production** track requires the candidate to have reached PROD **and** a PROD reviewer to approve
+  that specific publish run.
+- The default adapter is the **mock**, which is SIMULATED: no store is contacted.
+- Real store adapters refuse to run unless real publishing is explicitly enabled and credentials exist.
 
 ## Configuration is fixed when the app is built
 

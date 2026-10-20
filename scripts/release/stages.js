@@ -91,14 +91,14 @@ const STAGE_DEFINITIONS = [
     purpose: 'Release: mark the candidate as the approved production version.',
     kind: 'actual',
     deployment:
-      'ACTUAL: final tag and GitHub Release with the identical binary. Store publishing is SIMULATED, ' +
-      'disabled by default, and runs only when explicitly requested and enabled for PROD.',
+      'ACTUAL: final tag and GitHub Release with the identical binary. Store publishing is a separate, ' +
+      'explicitly approved step (publish.yml); with the mock adapter it is SIMULATED.',
     backend: 'Supabase (PROD environment variables; read-only smoke check, no writes).',
     requiredChecks: ['Artifact integrity', 'Read-only production smoke check (no data written)'],
     entry: 'PRE-PROD recorded.',
     exit: 'Approved; final tag and release created from the same files.',
     approver: 'Release manager + product owner (demo: repository owner)',
-    evidence: 'Final GitHub Release, complete release-record.json, (simulated) store submission receipt if requested.',
+    evidence: 'Final GitHub Release, complete release-record.json; publish logs if publish.yml is run.',
   },
 ];
 
