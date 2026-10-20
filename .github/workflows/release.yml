@@ -103,6 +103,21 @@ jobs:
       - name: Install dependencies from package-lock.json
         run: .github/scripts/run-annotated.sh "npm ci" error npm ci --no-audit --no-fund
 
+      - name: Install the Android NDK (retried; downloads are occasionally corrupted)
+        run: |
+          ndk=$(sed -n 's/.*ndkVersion = "\(.*\)".*/\1/p' android/build.gradle)
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          for attempt in 1 2 3; do
+            if [ -f "$ANDROID_HOME/ndk/$ndk/source.properties" ]; then
+              echo "✓ NDK $ndk installed"; exit 0
+            fi
+            echo "Installing NDK $ndk (attempt $attempt)"
+            rm -rf "$ANDROID_HOME/ndk/$ndk"
+            yes | "$sdkmanager" --install "ndk;$ndk" > /dev/null || true
+            sleep 10
+          done
+          [ -f "$ANDROID_HOME/ndk/$ndk/source.properties" ] || { echo "::error title=NDK::Could not install NDK $ndk after 3 attempts"; exit 1; }
+
       - name: Build release APK (build ${{ steps.identity.outputs.build_number }})
         working-directory: android
         run: >-
