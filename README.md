@@ -7,6 +7,7 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **Backend:** Supabase table `equipment`, protected by row-level security ([docs/SUPABASE.md](docs/SUPABASE.md))
 - **CI:** GitHub Actions: lint, typecheck, tests, Android debug APK ([docs/CI.md](docs/CI.md))
 - **Releases:** versioned release candidates with manifests and checksums, promoted without rebuilding ([docs/RELEASES.md](docs/RELEASES.md))
+- **Stages:** DEV → SIT → QA → UAT → PRE-PROD → PROD with GitHub Environment approvals ([docs/STAGES.md](docs/STAGES.md))
 - **Distribution:** internal only; no app store is used
 
 ## Prerequisites
@@ -72,3 +73,4 @@ docs/                   baseline, Supabase and CI documentation
 | `v1.0.0` | Original Expo app (pre-migration baseline), also on branch `release/v1` |
 | `v1.1.0` | Version 1: bare React Native app with Supabase fetch and submit |
 | `v1.1.1-rc.N` → `v1.1.1` | Version 1 release candidates and the approved release, built by the release pipeline ([docs/RELEASES.md](docs/RELEASES.md)) |
+| `v1.1.2-rc.N` → `v1.1.2` | Version 1 promoted through all six stages ([docs/STAGES.md](docs/STAGES.md)) |

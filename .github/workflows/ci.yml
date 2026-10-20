@@ -62,6 +62,9 @@ jobs:
           fi
           echo "No .env or key files are tracked."
 
+      - name: Lint GitHub workflow files (actionlint v1.7.12, checksum-verified by the Go module proxy)
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -color
+
       - name: Version consistency (package.json, Android, iOS)
         run: node scripts/release/cli.js version-check
 
