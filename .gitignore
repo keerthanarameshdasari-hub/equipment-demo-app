@@ -72,3 +72,4 @@ yarn-error.*
 jest-results.json
 reports/
 dist/
+v1-on-*.json

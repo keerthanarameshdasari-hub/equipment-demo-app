@@ -153,7 +153,8 @@ jobs:
         working-directory: v1
         run: |
           npm ci --no-audit --no-fund
-          ../.github/scripts/run-annotated.sh "V1 tests on V1" error npm test -- --ci
+          ../.github/scripts/run-annotated.sh "V1 tests on V1" error npm test -- --ci --json --outputFile=../v1-on-v1.json
+          node -e 'const r=require("../v1-on-v1.json");console.log(`::notice title=Version 1 tests on Version 1 (${process.env.V1_TAG})::${r.numPassedTests} passed, ${r.numFailedTests} failed in ${r.numTotalTestSuites} suites`)'
 
       - name: Version 1's original tests pass against the current code (backward compatibility)
         run: |
@@ -161,7 +162,8 @@ jobs:
           for f in v1/__tests__/*.test.*; do cp "$f" "__tests__/v1-$(basename "$f")"; done
           ls __tests__/v1-*
           .github/scripts/run-annotated.sh "V1 tests on current code" error \
-            npx jest --ci --testPathPattern '__tests__/v1-' --modulePathIgnorePatterns '<rootDir>/v1/'
+            npx jest --ci --testPathPattern '__tests__/v1-' --modulePathIgnorePatterns '<rootDir>/v1/' --json --outputFile=v1-on-current.json
+          node -e 'const r=require("./v1-on-current.json");console.log(`::notice title=Version 1 tests on current code::${r.numPassedTests} passed, ${r.numFailedTests} failed in ${r.numTotalTestSuites} suites`)'
 
   android:
     name: Android debug APK
