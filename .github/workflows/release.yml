@@ -3,7 +3,8 @@ name: Release candidate
 # Builds a release candidate (RC) of equipDemo, exactly once per RC tag:
 #   checks (same as CI) -> release APK with a unique build number -> manifest +
 #   SHA-256 -> CI artifact (90 days) -> GitHub pre-release holding the same files.
-# Promotion to later stages (promote.yml) re-verifies these files and never rebuilds.
+# This is the exit of stage DEV. Promotion through SIT, QA, UAT, PRE-PROD and PROD
+# (promote.yml) re-verifies these files and never rebuilds. See docs/STAGES.md.
 # See docs/RELEASES.md. No app store is contacted.
 #
 # Start a release candidate:  git tag v1.1.1-rc.1 && git push origin v1.1.1-rc.1
@@ -201,7 +202,7 @@ jobs:
           BUILD_NUMBER: ${{ needs.build.outputs.build-number }}
         run: |
           cat > notes.md <<EOF
-          Release candidate **${RC_TAG}**, build **${BUILD_NUMBER}**. Stage: **candidate**.
+          Release candidate **${RC_TAG}**, build **${BUILD_NUMBER}**. Stage: **DEV** (candidate built; next: SIT).
 
           | | |
           |---|---|
@@ -211,6 +212,6 @@ jobs:
           | Built by | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |
 
           Verify a download: \`node scripts/release/cli.js verify <folder>\` or compare \`SHA256SUMS.txt\`.
-          Promote without rebuilding: Actions → Promote release candidate. Internal distribution only; no app store.
+          Promote without rebuilding: Actions → Promote release candidate (SIT → QA → UAT → PRE-PROD → PROD). Internal distribution only.
           EOF
           gh release create "$RC_TAG" rc/* --verify-tag --prerelease --title "$TITLE" --notes-file notes.md

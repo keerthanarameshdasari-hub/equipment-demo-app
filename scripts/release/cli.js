@@ -6,13 +6,17 @@
  *   node scripts/release/cli.js build-number --run N --attempt A [--previous-titles FILE]
  *   node scripts/release/cli.js manifest --apk FILE --badging FILE --rc-tag TAG --build-number N --out DIR
  *   node scripts/release/cli.js verify DIR [--commit SHA] [--version X.Y.Z]
- *   node scripts/release/cli.js promote --record FILE --stage qa|approved --sha256 HEX --by NAME --run-url URL [--notes TEXT]
+ *   node scripts/release/cli.js check-stage --record FILE --stage STAGE --sha256 HEX
+ *   node scripts/release/cli.js stage-info --stage STAGE
+ *   node scripts/release/cli.js promote --record FILE --stage STAGE --sha256 HEX --by NAME --run-url URL
+ *        [--approved-by NAMES] [--checks-file FILE] [--notes TEXT]
  */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const lib = require('./lib');
+const { getStage } = require('./stages');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PACKAGE_JSON = path.join(ROOT, 'package.json');
@@ -191,19 +195,41 @@ const commands = {
     console.log(`  Built    ${manifest.build.timestamp} by ${manifest.build.runUrl}`);
   },
 
+  'check-stage'(args) {
+    const record = readJson(required(args, 'record'));
+    lib.assertCanPromote(record, required(args, 'stage'), required(args, 'sha256'));
+    const stage = getStage(args.stage);
+    console.log(`✓ ${record.releaseCandidate} may enter ${stage.name} (${stage.kind})`);
+  },
+
+  'stage-info'(args) {
+    console.log(JSON.stringify(getStage(required(args, 'stage')), null, 2));
+  },
+
   promote(args) {
     const file = required(args, 'record');
+    const stage = getStage(required(args, 'stage'));
+    const checks = args['checks-file'] ? readJson(args['checks-file']) : [];
+    const failed = checks.filter(c => c.result !== 'passed');
+    if (failed.length) {
+      throw new Error(`Cannot record ${stage.name}: failed checks: ${failed.map(c => c.name).join(', ')}`);
+    }
     const record = lib.appendStage(readJson(file), {
-      stage: required(args, 'stage'),
+      stage: stage.name,
+      kind: stage.kind,
+      deployment: stage.deployment,
+      backend: stage.backend,
       at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
       by: required(args, 'by'),
+      approvedBy: args['approved-by'] ? args['approved-by'].split(',').filter(Boolean) : undefined,
       runUrl: required(args, 'run-url'),
       artifactSha256: required(args, 'sha256'),
       verified: true,
+      checks,
       notes: args.notes || undefined,
     });
     writeJson(file, record);
-    console.log(`✓ ${record.releaseCandidate} recorded at stage "${args.stage}"`);
+    console.log(`✓ ${record.releaseCandidate} recorded at ${stage.name} (${stage.kind})`);
   },
 };
 

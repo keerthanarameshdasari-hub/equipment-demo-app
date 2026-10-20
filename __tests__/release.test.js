@@ -134,16 +134,41 @@ describe('manifest, verification and promotion', () => {
   test('stages are appended in order, for the same binary only', () => {
     const { manifest, sha256 } = makeCandidate();
     let record = lib.createReleaseRecord(manifest, { at: 't0', by: 'release workflow' });
+    expect(record.stages[0]).toMatchObject({ stage: 'DEV', kind: 'actual', artifactSha256: sha256 });
     const entry = stage => ({ stage, at: 't', by: 'tester', artifactSha256: sha256 });
 
-    expect(() => lib.appendStage(record, entry('approved'))).toThrow(/requires the "qa" stage/);
-    expect(() => lib.appendStage(record, { ...entry('qa'), artifactSha256: 'f'.repeat(64) })).toThrow(
+    expect(() => lib.appendStage(record, entry('QA'))).toThrow(/QA requires SIT/);
+    expect(() => lib.appendStage(record, entry('PROD'))).toThrow(/requires PRE-PROD/);
+    expect(() => lib.appendStage(record, entry('STAGING'))).toThrow(/Unknown promotion stage/);
+    expect(() => lib.appendStage(record, { ...entry('SIT'), artifactSha256: 'f'.repeat(64) })).toThrow(
       /different binary/,
     );
-    record = lib.appendStage(record, entry('qa'));
-    expect(() => lib.appendStage(record, entry('qa'))).toThrow(/already been promoted/);
-    record = lib.appendStage(record, entry('approved'));
-    expect(record.stages.map(s => s.stage)).toEqual(['candidate', 'qa', 'approved']);
+    for (const stage of ['SIT', 'QA', 'UAT', 'PRE-PROD', 'PROD']) {
+      record = lib.appendStage(record, entry(stage));
+    }
+    expect(() => lib.appendStage(record, entry('PROD'))).toThrow(/already been promoted/);
+    expect(record.stages.map(s => s.stage)).toEqual(['DEV', 'SIT', 'QA', 'UAT', 'PRE-PROD', 'PROD']);
     expect(new Set(record.stages.map(s => s.artifactSha256))).toEqual(new Set([sha256]));
+  });
+});
+
+describe('stage definitions', () => {
+  const { STAGE_DEFINITIONS, APPROVAL_STAGES } = require('../scripts/release/stages');
+
+  test('define every required attribute for all six stages', () => {
+    expect(STAGE_DEFINITIONS.map(s => s.name)).toEqual(['DEV', 'SIT', 'QA', 'UAT', 'PRE-PROD', 'PROD']);
+    for (const s of STAGE_DEFINITIONS) {
+      for (const key of ['purpose', 'deployment', 'backend', 'entry', 'exit', 'evidence']) {
+        expect(typeof s[key]).toBe('string');
+      }
+      expect(['actual', 'simulated']).toContain(s.kind);
+      expect(s.requiredChecks.length).toBeGreaterThan(0);
+      // Simulated stages must say so in their deployment label.
+      expect(s.kind === 'simulated' ? /SIMULATED/.test(s.deployment) : true).toBe(true);
+    }
+  });
+
+  test('every stage after SIT needs an approver, and PROD is never automatic', () => {
+    expect(APPROVAL_STAGES).toEqual(['QA', 'UAT', 'PRE-PROD', 'PROD']);
   });
 });

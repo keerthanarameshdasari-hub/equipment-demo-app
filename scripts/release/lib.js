@@ -8,6 +8,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const { STAGES, getStage } = require('./stages');
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const RC_TAG = /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))-rc\.([1-9]\d*)$/;
@@ -16,8 +17,6 @@ const RC_TAG = /^v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))-rc\.([1-9]\d*
 const RELEASE_BUILD_BASE = 1000;
 /** Highest versionCode Google Play accepts. */
 const MAX_VERSION_CODE = 2100000000;
-/** Ordered promotion stages after the automatic "candidate" stage. */
-const STAGES = ['candidate', 'qa', 'approved'];
 
 function isSemver(version) {
   return SEMVER.test(version);
@@ -223,8 +222,9 @@ function verifyArtifact({ manifest, apkPath, sha256SumsText, expected = {} }) {
   return { sha256: actual, problems };
 }
 
-/** Starts the append-only release record for a new candidate. */
+/** Starts the append-only release record for a new candidate (stage DEV). */
 function createReleaseRecord(manifest, candidateEntry) {
+  const dev = getStage('DEV');
   return {
     schema: 'equipdemo.release-record/v1',
     app: manifest.app,
@@ -233,30 +233,47 @@ function createReleaseRecord(manifest, candidateEntry) {
     releaseCandidate: manifest.releaseCandidate.tag,
     source: { repository: manifest.source.repository, commit: manifest.source.commit },
     artifact: { file: manifest.artifact.file, sha256: manifest.artifact.sha256 },
-    stages: [{ stage: 'candidate', ...candidateEntry, artifactSha256: manifest.artifact.sha256 }],
+    stages: [
+      {
+        stage: 'DEV',
+        kind: dev.kind,
+        deployment: dev.deployment,
+        checks: dev.requiredChecks.map(name => ({ name, result: 'passed' })),
+        ...candidateEntry,
+        artifactSha256: manifest.artifact.sha256,
+      },
+    ],
   };
 }
 
 /**
- * Appends a promotion stage. Enforces stage order and that the promoted binary
- * is byte-for-byte the candidate (same SHA-256): no rebuilds between stages.
+ * Checks that `stage` may be recorded next for this record and binary.
+ * Enforces stage order (no skipping, no repeats) and that the binary is
+ * byte-for-byte the candidate (same SHA-256): no rebuilds between stages.
  */
-function appendStage(record, entry) {
-  const index = STAGES.indexOf(entry.stage);
+function assertCanPromote(record, stage, artifactSha256) {
+  const index = STAGES.indexOf(stage);
   if (index < 1) {
-    throw new Error(`Unknown promotion stage "${entry.stage}". Use one of: ${STAGES.slice(1).join(', ')}`);
+    throw new Error(`Unknown promotion stage "${stage}". Use one of: ${STAGES.slice(1).join(', ')}`);
   }
   const done = record.stages.map(s => s.stage);
-  if (done.includes(entry.stage)) {
-    throw new Error(`${record.releaseCandidate} has already been promoted to "${entry.stage}"`);
+  if (done.includes(stage)) {
+    throw new Error(`${record.releaseCandidate} has already been promoted to ${stage}`);
   }
   const required = STAGES[index - 1];
-  if (!done.includes(required)) {
-    throw new Error(`"${entry.stage}" requires the "${required}" stage first`);
+  if (done[done.length - 1] !== required) {
+    throw new Error(
+      `${stage} requires ${required} to be the last recorded stage; ${record.releaseCandidate} is at ${done[done.length - 1]}`,
+    );
   }
-  if (entry.artifactSha256 !== record.artifact.sha256) {
+  if (artifactSha256 !== record.artifact.sha256) {
     throw new Error('Artifact checksum differs from the candidate; refusing to promote a different binary');
   }
+}
+
+/** Appends a stage entry after the same checks as assertCanPromote. */
+function appendStage(record, entry) {
+  assertCanPromote(record, entry.stage, entry.artifactSha256);
   return { ...record, stages: [...record.stages, entry] };
 }
 
@@ -265,6 +282,7 @@ module.exports = {
   STAGES,
   appendStage,
   assertBuildNumberIncreases,
+  assertCanPromote,
   buildNumbersFromReleaseTitles,
   checkVersionConsistency,
   computeReleaseBuildNumber,

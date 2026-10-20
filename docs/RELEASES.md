@@ -53,13 +53,11 @@ checks (same as CI) → assembleRelease with build number N
 → verify → CI artifact "equipdemo-v1.1.1-rc.1-buildN" (90 days)
 → download it again (digest-checked) → verify → GitHub pre-release "v1.1.1-rc.1"
         │
-        ▼  promote.yml  stage = qa         (no build)
-download pre-release → verify SHA-256, manifest, tag→commit,
-cross-check CI artifact copy → append "qa" to release-record.json
-        │
-        ▼  promote.yml  stage = approved   (no build)
-same verification → append "approved" → create tag v1.1.1 on the SAME commit
-→ GitHub Release "v1.1.1" with the SAME files (identical SHA-256)
+        ▼  promote.yml, one run per stage   (no build)
+SIT → QA → UAT → PRE-PROD → PROD    (see STAGES.md)
+each: verify SHA-256, manifest, tag→commit, CI artifact copy → stage checks
+→ append the stage to release-record.json
+PROD: create tag v1.1.1 on the SAME commit → GitHub Release with the SAME files
 ```
 
 A fixed bug means a new candidate (`v1.1.1-rc.2`), never a rebuilt `rc.1`. Once `v1.1.1` is approved,
@@ -78,8 +76,10 @@ CI artifact name and retention.
 
 **`SHA256SUMS.txt`** is standard `sha256sum` format, so it can be checked with no project tools.
 
-**`release-record.json`** is the append-only stage history: one entry per stage with stage, time,
-who, workflow run URL, the SHA-256 verified at that stage, and optional notes. Promotion refuses to
+**`release-record.json`** is the append-only stage history: one entry per stage (DEV, SIT, QA, UAT,
+PRE-PROD, PROD) with stage, actual/simulated, time, who ran it, who approved it, workflow run URL,
+checks passed, the SHA-256 verified at that stage, and notes. (`v1.1.1` was released with an earlier
+two-stage scheme, `qa` → `approved`.) Promotion refuses to
 skip a stage, repeat a stage, or record a different SHA-256 from the candidate's.
 
 ## 5. Storage and retention
@@ -120,5 +120,5 @@ Then confirm the commit: `git show <commit from manifest>` exists, and `git rev-
   use an upload key stored as an encrypted CI secret, and Play App Signing.
 - Records live in GitHub Releases, editable by repository admins. Signed provenance (GitHub artifact
   attestations / Sigstore) would make them tamper-evident, but it needs a public repository or GitHub Enterprise.
-- Required approvals before a stage (GitHub Environments with reviewers) need a paid plan for private
-  repositories. Here, promotion is a deliberate manual workflow run, and the actor is recorded.
+- Required approvals use GitHub Environments with required reviewers (see STAGES.md); on the Free plan
+  this needs a public repository, which is why the repository was made public.
