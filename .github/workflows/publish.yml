@@ -1,0 +1,165 @@
+name: Publish (store adapter)
+
+# Publishes an already-built, already-promoted release candidate through the
+# publishing interface (scripts/publish). Separate from build, test and promotion:
+# it never builds anything and only talks to the selected adapter.
+#
+#   target = mock               SIMULATED: validates for real, records simulated outcomes, contacts no store
+#   target = google-play        real adapter placeholder: refuses safely (disabled / no credentials / not implemented)
+#   target = app-store-connect  real adapter placeholder: refuses safely
+#
+# Approval: production track runs in the PROD environment (required reviewers),
+# testing tracks in QA. Store credentials are passed to steps ONLY when the
+# repository variable REAL_PUBLISHING_ENABLED is 'true' and a real target is chosen.
+# See docs/PUBLISHING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_tag:
+        description: Release candidate tag (e.g. v1.1.2-rc.1)
+        required: true
+        type: string
+      target:
+        description: Publisher adapter
+        required: true
+        type: choice
+        options: [mock, google-play, app-store-connect]
+        default: mock
+      track:
+        description: Store track
+        required: true
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+      rollout_percentage:
+        description: Rollout percentage (testing tracks must use 100; production may stage, e.g. 20)
+        required: true
+        type: string
+        default: '100'
+      release_notes:
+        description: Release notes (en-US, required, max 500 characters)
+        required: true
+        type: string
+      application_id:
+        description: Application ID (must match the APK)
+        required: true
+        type: string
+        default: com.equipmentdemo.app
+      demo_corrupt_artifact:
+        description: DEMO ONLY - corrupt the downloaded APK copy to show that a bad checksum is rejected
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ inputs.rc_tag }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ inputs.target }} → ${{ inputs.track }} (${{ inputs.rc_tag }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Explicit approval: production needs a PROD reviewer, testing tracks a QA reviewer.
+    environment:
+      name: ${{ inputs.track == 'production' && 'PROD' || 'QA' }}
+    permissions:
+      contents: write # attach the publish log to the release
+      actions: read # read who approved this run
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RC_TAG: ${{ inputs.rc_tag }}
+      TARGET: ${{ inputs.target }}
+      # Real-store settings: empty unless real publishing is explicitly enabled for this target.
+      REAL_PUBLISHING_ENABLED: ${{ inputs.target != 'mock' && vars.REAL_PUBLISHING_ENABLED || 'false' }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ (inputs.target == 'google-play' && vars.REAL_PUBLISHING_ENABLED == 'true') && secrets.PLAY_SERVICE_ACCOUNT_JSON || '' }}
+      ASC_KEY_ID: ${{ (inputs.target == 'app-store-connect' && vars.REAL_PUBLISHING_ENABLED == 'true') && secrets.ASC_KEY_ID || '' }}
+      ASC_ISSUER_ID: ${{ (inputs.target == 'app-store-connect' && vars.REAL_PUBLISHING_ENABLED == 'true') && secrets.ASC_ISSUER_ID || '' }}
+      ASC_PRIVATE_KEY: ${{ (inputs.target == 'app-store-connect' && vars.REAL_PUBLISHING_ENABLED == 'true') && secrets.ASC_PRIVATE_KEY || '' }}
+    steps:
+      - name: Check out publishing tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Label this run
+        run: |
+          if [ "$TARGET" = mock ]; then
+            echo "::notice title=SIMULATED publishing::Mock adapter: inputs are validated for real, but no store is contacted and nothing is uploaded or released."
+          else
+            echo "::notice title=Real adapter selected::$TARGET (REAL_PUBLISHING_ENABLED=$REAL_PUBLISHING_ENABLED). It refuses safely unless enabled, configured and implemented."
+          fi
+
+      - name: Download the release candidate
+        run: gh release download "$RC_TAG" --dir rc --pattern '*.apk' --pattern 'release-manifest.json' --pattern 'release-record.json' --pattern 'SHA256SUMS.txt' && ls -l rc
+
+      - name: DEMO - corrupt the downloaded copy (requested)
+        if: inputs.demo_corrupt_artifact
+        run: |
+          printf 'x' >> rc/*.apk
+          echo "::warning title=Demo::The downloaded APK copy was deliberately modified to demonstrate checksum rejection. The stored release is untouched."
+
+      - name: Prepare publish metadata
+        env:
+          APPLICATION_ID: ${{ inputs.application_id }}
+          TRACK: ${{ inputs.track }}
+          ROLLOUT: ${{ inputs.rollout_percentage }}
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          node scripts/publish/cli.js metadata --out publish-metadata.json \
+            --application-id "$APPLICATION_ID" --track "$TRACK" --rollout "$ROLLOUT" --notes "$NOTES"
+          approvers=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/approvals" \
+            --jq '[.[] | select(.state == "approved") | .user.login] | unique | join(",")')
+          echo "Approved by: ${approvers:-nobody}"
+          echo "APPROVED_BY=$approvers" >> "$GITHUB_ENV"
+
+      - name: 1. Validate artifact
+        run: node scripts/publish/cli.js validate --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+      - name: 2. Upload build
+        run: node scripts/publish/cli.js upload --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+      - name: 3. Assign testing track
+        run: node scripts/publish/cli.js assign-track --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+      - name: 4. Request review
+        run: node scripts/publish/cli.js request-review --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+      - name: 5. Start rollout
+        run: node scripts/publish/cli.js start-rollout --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+      - name: 6. Check release status
+        run: node scripts/publish/cli.js status --target "$TARGET" --dir rc --metadata publish-metadata.json --state state.json --log publish-log.json --approved-by "$APPROVED_BY"
+
+      - name: Evidence - summary and publish log (also on failure)
+        if: always()
+        env:
+          TRACK: ${{ inputs.track }}
+        run: |
+          [ -f publish-log.json ] || echo '[]' > publish-log.json
+          label=$([ "$TARGET" = mock ] && echo SIMULATED || echo REAL-ADAPTER)
+          log_name="publish-log-${TARGET}-${TRACK}-${label}-run${GITHUB_RUN_ID}.json"
+          cp publish-log.json "$log_name"
+          gh release upload "$RC_TAG" "$log_name" --clobber || echo "::warning::Could not attach the log to $RC_TAG"
+          {
+            echo "### Publish ${RC_TAG} → ${TRACK} via \`${TARGET}\` (${label})"
+            echo ""
+            [ "$TARGET" = mock ] && echo "> **SIMULATED.** No store was contacted. Nothing was uploaded, reviewed or released." && echo ""
+            echo "| Operation | Status | Simulated | Store contacted |"
+            echo "|---|---|---|---|"
+            node -e '
+              for (const e of require("./publish-log.json"))
+                console.log(`| ${e.operation} | ${e.status}${e.code ? " (" + e.code + ")" : ""} | ${e.simulated} | ${e.storeContacted} |`);
+            '
+            echo ""
+            echo "Log attached to release \`${RC_TAG}\` as \`${log_name}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the publish log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: publish-log-${{ inputs.target }}-${{ inputs.track }}-run${{ github.run_id }}
+          path: publish-log.json
+          if-no-files-found: ignore
+          retention-days: 90

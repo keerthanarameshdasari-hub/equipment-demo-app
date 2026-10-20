@@ -8,7 +8,9 @@ name: Promote release candidate
 #   checks  runs in the stage's GitHub Environment: waits for required reviewers,
 #           then runs that stage's checks with that environment's variables/secrets
 #   record  only if every check passed: append the stage to release-record.json
-#           (PROD: final tag + release with the same files; optional SIMULATED store submission)
+#           (PROD: final tag + release with the same files)
+#
+# Store publishing is NOT done here: see publish.yml (publishing adapter).
 #
 # A failed check stops the run before "record", so the stage is not recorded and
 # the next stage refuses to start. No app store is contacted.
@@ -29,11 +31,6 @@ on:
         description: Notes / sign-off (required for QA and UAT, e.g. what was tested)
         required: false
         type: string
-      publish_to_store:
-        description: PROD only - also run the SIMULATED store submission (needs PUBLISHING_ENABLED=true on PROD)
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -69,13 +66,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate request
-        env:
-          PUBLISH: ${{ inputs.publish_to_store }}
-        run: |
-          node -e "require('./scripts/release/lib').parseRcTag(process.argv[1])" "$RC_TAG"
-          if [ "$PUBLISH" = true ] && [ "$STAGE" != PROD ]; then
-            echo "::error title=Invalid request::publish_to_store is only allowed for PROD"; exit 1
-          fi
+        run: node -e "require('./scripts/release/lib').parseRcTag(process.argv[1])" "$RC_TAG"
 
       - name: Download the candidate from its GitHub pre-release
         run: gh release download "$RC_TAG" --dir rc && ls -l rc
@@ -141,8 +132,6 @@ jobs:
       name: ${{ inputs.stage }}
     permissions:
       contents: read
-    outputs:
-      publishing-enabled: ${{ steps.publishing.outputs.enabled }}
     env:
       SHA256: ${{ needs.verify.outputs.sha256 }}
       COMMIT: ${{ needs.verify.outputs.commit }}
@@ -242,13 +231,6 @@ jobs:
           INTEGRATION_MODE: readonly
         run: npm run test:integration -- --ci
 
-      - name: PROD - is store publishing enabled for this environment?
-        id: publishing
-        if: inputs.stage == 'PROD'
-        env:
-          PUBLISHING_ENABLED: ${{ vars.PUBLISHING_ENABLED }}
-        run: echo "enabled=${PUBLISHING_ENABLED:-false}" >> "$GITHUB_OUTPUT"
-
       - name: Record which checks passed
         run: |
           # Reaching this step means every check above passed (any failure stops the job).
@@ -333,31 +315,6 @@ jobs:
           EOF
           gh release create "$final_tag" rc/* --verify-tag --latest \
             --title "equipDemo ${VERSION} (build ${build})" --notes-file notes.md
-
-      - name: PROD - store submission (SIMULATED, only if explicitly requested and enabled)
-        if: inputs.stage == 'PROD'
-        env:
-          REQUESTED: ${{ inputs.publish_to_store }}
-          ENABLED: ${{ needs.checks.outputs.publishing-enabled }}
-        run: |
-          if [ "$REQUESTED" != true ] || [ "$ENABLED" != true ]; then
-            echo "::notice title=Store publishing disabled::Not submitted (requested=$REQUESTED, PROD PUBLISHING_ENABLED=$ENABLED). The release is approved; no store was contacted."
-            exit 0
-          fi
-          cat > store-submission-SIMULATED.json <<EOF
-          {
-            "simulated": true,
-            "note": "SIMULATED store submission: no Google Play or App Store API was called.",
-            "track": "internal",
-            "applicationId": "$(node -p "require('./rc/release-manifest.json').platforms.android.applicationId")",
-            "versionCode": $(node -p "require('./rc/release-manifest.json').buildNumber"),
-            "artifactSha256": "${SHA256}",
-            "requestedBy": "${GITHUB_ACTOR}",
-            "at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-          gh release upload "v${VERSION}" store-submission-SIMULATED.json
-          echo "::notice title=Store publishing SIMULATED::Receipt attached to release v${VERSION}; no store was contacted."
 
       - name: Keep a copy of this stage record
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

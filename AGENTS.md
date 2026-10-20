@@ -27,6 +27,8 @@ npm run version:set X.Y.Z  # change the app version (package.json, lockfile, iOS
 - App version lives in `package.json`; build numbers are assigned by CI. See `docs/RELEASES.md`.
 - Release binaries are built only by `.github/workflows/release.yml` from an RC tag, and promoted by
   `promote.yml` without rebuilding.
+- Store publishing goes only through the adapter interface in `scripts/publish` (`publish.yml`).
+  The mock must never claim a real upload or release; real adapters must refuse unless enabled.
 
 Run tests and typecheck before declaring any task done.
 

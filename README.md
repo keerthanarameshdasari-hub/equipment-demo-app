@@ -8,6 +8,7 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **CI:** GitHub Actions: lint, typecheck, tests, Android debug APK ([docs/CI.md](docs/CI.md))
 - **Releases:** versioned release candidates with manifests and checksums, promoted without rebuilding ([docs/RELEASES.md](docs/RELEASES.md))
 - **Stages:** DEV → SIT → QA → UAT → PRE-PROD → PROD with GitHub Environment approvals ([docs/STAGES.md](docs/STAGES.md))
+- **Publishing:** replaceable store adapter; the default mock is SIMULATED and contacts no store ([docs/PUBLISHING.md](docs/PUBLISHING.md))
 - **Distribution:** internal only; no app store is used
 
 ## Prerequisites
