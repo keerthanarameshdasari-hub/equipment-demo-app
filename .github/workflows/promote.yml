@@ -59,6 +59,7 @@ jobs:
       sha256: ${{ steps.verify.outputs.sha256 }}
       commit: ${{ steps.verify.outputs.commit }}
       version: ${{ steps.verify.outputs.version }}
+      resume: ${{ steps.order.outputs.resume }}
     steps:
       - name: Check out release tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,9 +96,21 @@ jobs:
           fi
 
       - name: Check stage order (previous stage must be recorded)
+        id: order
         env:
           SHA256: ${{ steps.verify.outputs.sha256 }}
-        run: node scripts/release/cli.js check-stage --record rc/release-record.json --stage "$STAGE" --sha256 "$SHA256"
+          VERSION: ${{ steps.verify.outputs.version }}
+        run: |
+          if node scripts/release/cli.js check-stage --record rc/release-record.json --stage "$STAGE" --sha256 "$SHA256"; then
+            echo "resume=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Resume: PROD already recorded for this exact binary, but the final release was never created.
+          last=$(node -p "const r=require('./rc/release-record.json'); const s=r.stages.at(-1); s.stage + ' ' + s.artifactSha256")
+          if [ "$STAGE" = PROD ] && [ "$last" = "PROD $SHA256" ] && ! gh api "repos/$GH_REPO/releases/tags/v$VERSION" --silent 2>/dev/null; then
+            echo "::notice title=Resuming PROD::PROD is already recorded for this binary but release v$VERSION does not exist yet. This run re-checks and finishes the release without recording PROD twice."
+            echo "resume=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          exit 1
 
       - name: Check the approval gate is configured
         run: |
@@ -284,7 +297,23 @@ jobs:
           name: evidence-${{ inputs.rc_tag }}-${{ inputs.stage }}
           path: evidence
 
+      - name: PROD - final tag on the candidate's commit (before anything is recorded)
+        if: inputs.stage == 'PROD'
+        run: |
+          final_tag="v${VERSION}"
+          existing=$(gh api "repos/$GH_REPO/commits/$final_tag" --jq .sha 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            [ "$existing" = "$COMMIT" ] || { echo "::error title=Tag conflict::$final_tag exists but points to $existing, not $COMMIT"; exit 1; }
+            echo "✓ $final_tag already points to $COMMIT"; exit 0
+          fi
+          if ! gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$final_tag" -f sha="$COMMIT" --silent; then
+            echo "::error title=Create the final tag yourself::GitHub did not allow the workflow token to create $final_tag (this happens when main has newer .github/workflows files than the candidate). Nothing was recorded. Run: git fetch --tags && git tag $final_tag $RC_TAG && git push origin $final_tag - then run Promote with stage PROD again; it will resume."
+            exit 1
+          fi
+          echo "✓ Created $final_tag at $COMMIT"
+
       - name: Append the stage to the release record
+        if: needs.verify.outputs.resume != 'true'
         run: |
           approvers=$(gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/approvals" \
             --jq '[.[] | select(.state == "approved") | .user.login] | unique | join(",")')
@@ -295,12 +324,11 @@ jobs:
             ${approvers:+--approved-by "$approvers"} ${NOTES:+--notes "$NOTES"}
           gh release upload "$RC_TAG" rc/release-record.json --clobber
 
-      - name: PROD - final tag and GitHub Release from the same files
+      - name: PROD - GitHub Release from the same files
         if: inputs.stage == 'PROD'
         run: |
           final_tag="v${VERSION}"
           build=$(node -p "require('./rc/release-manifest.json').buildNumber")
-          gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$final_tag" -f sha="$COMMIT" --silent
           cat > notes.md <<EOF
           **equipDemo ${VERSION}** (build ${build}), released to PROD from **${RC_TAG}** without rebuilding.
 
