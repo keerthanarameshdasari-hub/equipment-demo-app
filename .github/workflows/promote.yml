@@ -1,0 +1,144 @@
+name: Promote release candidate
+
+# Moves an existing release candidate to the next stage WITHOUT rebuilding it:
+#   candidate -> qa -> approved
+# Every promotion downloads the stored binary, verifies its SHA-256 against the
+# manifest, SHA256SUMS.txt, the tagged source commit and an independent copy in
+# CI artifact storage, then appends a stage entry to release-record.json.
+# "approved" also creates the final tag (e.g. v1.1.1) on the same commit and a
+# GitHub Release holding the same, unchanged files. No app store is contacted.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_tag:
+        description: Release candidate tag (e.g. v1.1.1-rc.1)
+        required: true
+        type: string
+      stage:
+        description: Stage to record
+        required: true
+        type: choice
+        options: [qa, approved]
+      notes:
+        description: Optional note (e.g. who tested it, test results link)
+        required: false
+        type: string
+
+permissions:
+  contents: write # update the release record, create the final tag/release
+  actions: read # read the independent copy in CI artifact storage
+
+concurrency:
+  group: promote-${{ inputs.rc_tag }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Verify and promote ${{ inputs.rc_tag }} to ${{ inputs.stage }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RC_TAG: ${{ inputs.rc_tag }}
+      STAGE: ${{ inputs.stage }}
+      NOTES: ${{ inputs.notes }}
+    steps:
+      - name: Check out release scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the candidate from its GitHub pre-release
+        run: |
+          node -e "require('./scripts/release/lib').parseRcTag(process.argv[1])" "$RC_TAG"
+          gh release download "$RC_TAG" --dir rc
+          ls -l rc
+
+      - name: Verify checksum, manifest and source revision
+        id: verify
+        run: |
+          commit=$(gh api "repos/$GH_REPO/commits/$RC_TAG" --jq .sha)
+          version=$(node -p "require('./scripts/release/lib').parseRcTag(process.argv[1]).version" "$RC_TAG")
+          node scripts/release/cli.js verify rc --commit "$commit" --version "$version"
+          sha256=$(sha256sum rc/*.apk | cut -d' ' -f1)
+          {
+            echo "commit=$commit"
+            echo "version=$version"
+            echo "sha256=$sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Cross-check against the copy in CI artifact storage
+        env:
+          SHA256: ${{ steps.verify.outputs.sha256 }}
+        run: |
+          run_id=$(node -p "require('./rc/release-manifest.json').build.runId")
+          name=$(node -p "require('./rc/release-manifest.json').artifact.ciArtifactName")
+          if gh run download "$run_id" --name "$name" --dir ci-copy 2>download-error.txt; then
+            ci_sha=$(sha256sum ci-copy/*.apk | cut -d' ' -f1)
+            if [ "$ci_sha" != "$SHA256" ]; then
+              echo "::error title=Integrity::Release asset and CI artifact differ ($SHA256 vs $ci_sha)"
+              exit 1
+            fi
+            echo "✓ CI artifact $name (run $run_id) has the same SHA-256"
+          else
+            echo "::warning title=Integrity::CI artifact $name is no longer available (expired?); verified against the release assets only. $(cat download-error.txt)"
+          fi
+
+      - name: Append stage to the release record
+        env:
+          SHA256: ${{ steps.verify.outputs.sha256 }}
+        run: |
+          node scripts/release/cli.js promote --record rc/release-record.json \
+            --stage "$STAGE" --sha256 "$SHA256" --by "$GITHUB_ACTOR" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            ${NOTES:+--notes "$NOTES"}
+          gh release upload "$RC_TAG" rc/release-record.json --clobber
+
+      - name: Approved - create final tag and release from the same files
+        if: inputs.stage == 'approved'
+        env:
+          COMMIT: ${{ steps.verify.outputs.commit }}
+          VERSION: ${{ steps.verify.outputs.version }}
+          SHA256: ${{ steps.verify.outputs.sha256 }}
+        run: |
+          final_tag="v${VERSION}"
+          build=$(node -p "require('./rc/release-manifest.json').buildNumber")
+          gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$final_tag" -f sha="$COMMIT" --silent
+          cat > notes.md <<EOF
+          **equipDemo ${VERSION}** (build ${build}), approved from **${RC_TAG}** without rebuilding.
+
+          | | |
+          |---|---|
+          | Source commit | \`${COMMIT}\` |
+          | APK | \`$(ls rc/*.apk | xargs -n1 basename)\` |
+          | SHA-256 | \`${SHA256}\` (identical to the candidate) |
+          | Stages | $(node -p "require('./rc/release-record.json').stages.map(s => s.stage).join(' → ')") |
+
+          Internal distribution only; no app store. Full history: \`release-record.json\`.
+          EOF
+          gh release create "$final_tag" rc/* --verify-tag --latest \
+            --title "equipDemo ${VERSION} (build ${build})" --notes-file notes.md
+
+      - name: Keep a copy of this stage record
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-record-${{ inputs.rc_tag }}-${{ inputs.stage }}
+          path: rc/release-record.json
+          retention-days: 90
+
+      - name: Summary
+        env:
+          SHA256: ${{ steps.verify.outputs.sha256 }}
+          COMMIT: ${{ steps.verify.outputs.commit }}
+        run: |
+          {
+            echo "### ${RC_TAG} promoted to **${STAGE}**"
+            echo ""
+            echo "Verified SHA-256 \`${SHA256}\` from commit \`${COMMIT}\`. No rebuild."
+            echo ""
+            echo '```json'
+            cat rc/release-record.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

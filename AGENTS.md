@@ -19,7 +19,14 @@ npm test               # Jest
 npm run typecheck      # tsc --noEmit
 npm run lint           # ESLint
 cd android && ./gradlew assembleRelease   # release APK (signed with the debug key; demo only)
+npm run version:set X.Y.Z  # change the app version (package.json, lockfile, iOS) - never edit by hand
 ```
+
+## Versions and releases
+
+- App version lives in `package.json`; build numbers are assigned by CI. See `docs/RELEASES.md`.
+- Release binaries are built only by `.github/workflows/release.yml` from an RC tag, and promoted by
+  `promote.yml` without rebuilding.
 
 Run tests and typecheck before declaring any task done.
 

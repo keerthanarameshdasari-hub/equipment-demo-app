@@ -6,6 +6,7 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **App:** bare React Native 0.86 (no Expo), React Navigation, Supabase
 - **Backend:** Supabase table `equipment`, protected by row-level security ([docs/SUPABASE.md](docs/SUPABASE.md))
 - **CI:** GitHub Actions: lint, typecheck, tests, Android debug APK ([docs/CI.md](docs/CI.md))
+- **Releases:** versioned release candidates with manifests and checksums, promoted without rebuilding ([docs/RELEASES.md](docs/RELEASES.md))
 - **Distribution:** internal only; no app store is used
 
 ## Prerequisites
@@ -42,6 +43,9 @@ Without `.env` the app runs on built-in demo data.
 | `npm test` | Unit and UI tests (no backend needed) |
 | `npm test -- --coverage` | Tests with a coverage report in `coverage/` |
 | `npm run test:integration` | Live checks against Supabase (needs `.env`) |
+| `npm run version:check` | Confirm package.json, Android and iOS versions agree |
+| `npm run version:set 1.2.0` | Change the app version everywhere |
+| `npm run release:verify -- <folder>` | Verify a downloaded release candidate |
 | `npm start` | Metro dev server (`-- --reset-cache` after editing `.env`) |
 | `npm run android` | Build and run on an Android emulator/device |
 | `cd android && ./gradlew assembleDebug -PbundleJsInDebug` | Standalone debug APK, as built in CI (Windows: `gradlew.bat`) |
@@ -67,3 +71,4 @@ docs/                   baseline, Supabase and CI documentation
 |---|---|
 | `v1.0.0` | Original Expo app (pre-migration baseline), also on branch `release/v1` |
 | `v1.1.0` | Version 1: bare React Native app with Supabase fetch and submit |
+| `v1.1.1-rc.N` → `v1.1.1` | Version 1 release candidates and the approved release, built by the release pipeline ([docs/RELEASES.md](docs/RELEASES.md)) |

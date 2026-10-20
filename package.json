@@ -1,6 +1,6 @@
 {
   "name": "equipdemo",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "test": "jest",
     "typecheck": "tsc --noEmit",
-    "test:integration": "jest --config jest.integration.config.js"
+    "test:integration": "jest --config jest.integration.config.js",
+    "version:check": "node scripts/release/cli.js version-check",
+    "version:set": "node scripts/release/cli.js version-set",
+    "release:verify": "node scripts/release/cli.js verify"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

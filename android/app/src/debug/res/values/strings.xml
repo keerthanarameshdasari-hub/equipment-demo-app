@@ -1,0 +1,4 @@
+<resources>
+    <!-- Debug builds are labelled so they are easy to tell apart from release builds. -->
+    <string name="app_name">equipDemo Dev</string>
+</resources>
