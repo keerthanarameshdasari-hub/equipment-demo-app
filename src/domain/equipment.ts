@@ -125,7 +125,8 @@ export function filterEquipment(items: Equipment[], query: string): Equipment[] 
 /** Version 2: the result count shown above the list. */
 export function describeCount(shown: number, total: number): string {
   if (shown === total) {
-    return total === 1 ? '1 item' : `${total} items`;
+    // DRILL: simulated regression (off-by-one in the count)
+    return `${total + 1} items`;
   }
   return `Showing ${shown} of ${total}`;
 }
