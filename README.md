@@ -9,6 +9,8 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **Releases:** versioned release candidates with manifests and checksums, promoted without rebuilding ([docs/RELEASES.md](docs/RELEASES.md))
 - **Stages:** DEV → SIT → QA → UAT → PRE-PROD → PROD with GitHub Environment approvals ([docs/STAGES.md](docs/STAGES.md))
 - **Publishing:** replaceable store adapter; the default mock is SIMULATED and contacts no store ([docs/PUBLISHING.md](docs/PUBLISHING.md))
+- **Backend seam:** UI depends only on a repository interface; AWS Amplify adapter contract documented ([docs/AWS_MIGRATION.md](docs/AWS_MIGRATION.md))
+- **Secrets:** GitHub environment secrets; AWS via OIDC, no stored keys ([docs/SECRETS.md](docs/SECRETS.md))
 - **Distribution:** internal only; no app store is used
 
 ## Prerequisites
