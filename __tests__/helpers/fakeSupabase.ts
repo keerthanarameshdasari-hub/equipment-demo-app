@@ -17,10 +17,22 @@ export function createFakeSupabase(initial: Row[] = []) {
       const state: { insert?: Omit<Row, 'id'>; single?: boolean; limit?: number; ascending?: boolean } = {};
       const builder: Record<string, unknown> = {
         select: () => builder,
-        order: (_col: string, opts: { ascending: boolean }) => ((state.ascending = opts.ascending), builder),
-        limit: (n: number) => ((state.limit = n), builder),
-        insert: (row: Omit<Row, 'id'>) => ((state.insert = row), builder),
-        single: () => ((state.single = true), builder),
+        order: (_col: string, opts: { ascending: boolean }) => {
+          state.ascending = opts.ascending;
+          return builder;
+        },
+        limit: (n: number) => {
+          state.limit = n;
+          return builder;
+        },
+        insert: (row: Omit<Row, 'id'>) => {
+          state.insert = row;
+          return builder;
+        },
+        single: () => {
+          state.single = true;
+          return builder;
+        },
         abortSignal: () => builder,
         then(resolve: (v: unknown) => void, reject: (e: unknown) => void) {
           const failure = nextFailure;
