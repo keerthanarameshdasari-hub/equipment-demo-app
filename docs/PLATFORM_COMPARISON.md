@@ -200,17 +200,92 @@ The scores apply **to this project only**: a public repository, one developer, m
 
 **Cleanup:** to stop all AWS charges and storage for the comparison, delete the CloudFormation stack. Empty the S3 bucket first, because CloudFormation can't delete a bucket that still holds objects.
 
-## 7. Third platform: EAS Workflows (NOT COMPLETED, in progress)
+## 7. Third platform: EAS Workflows
 
-Configured on trial branches only (`eas/trial-pass` = `63b549e` + EAS config, `eas/trial-fail` = `44ff925` + the same
-config), because AGENTS.md keeps EAS configuration out of `main`. Same steps: checks job, EAS Build (Android release
-APK, build number 6001), manifest/checksum/mock-gate job, and a `require-approval` job.
+Configured on trial branches only, because AGENTS.md keeps EAS configuration out of `main`:
 
-| Observation so far (21 Oct 2026) | Evidence |
+- `eas/trial-pass`: `63b549e` plus the EAS configuration (tip `d76b1da`)
+- `eas/trial-fail`: `44ff925` plus the same configuration (tip `70dbca0`)
+
+The workflow runs the same steps as the other two platforms:
+
+- **Checks job:** secret-file guard, version check, `npm ci`, lint, typecheck and tests.
+- **EAS Build job:** Android release APK, build number 6001.
+- **Manifest, checksum and mock publishing gate job.**
+- **Approval:** a `require-approval` job, then a job that records the approval and publishes nothing.
+
+### 7.1 Setup observations
+
+| Observation | Evidence |
 |---|---|
-| `eas init` linked the project but warned it "cannot determine which native SDK version your project uses because the module `expo` is not installed" | operator terminal output |
-| Workflows were triggered through Expo's GitHub integration (repository connected in Expo) | operator |
-| Run 1 (passing commit): **checks job passed**; **build failed**: "The `android.package` is required to be set in app config for builds triggered by GitHub integration" | operator screenshot / message |
-| Fix: `android.package = com.equipmentdemo.app` added to `app.json` on both trial branches (matches `build.gradle`) | commit `70dbca0` and its copy on `eas/trial-fail` |
+| `eas init` linked the project but warned it "cannot determine which native SDK version your project uses because the module `expo` is not installed" | Operator terminal output |
+| Runs were taken from GitHub through Expo's GitHub integration (repository connected in Expo) | Operator |
+| First run, passing branch: **checks passed; build failed**: "The `android.package` is required to be set in app config for builds triggered by GitHub integration" | Operator message |
+| Fix: `android.package = com.equipmentdemo.app` added to `app.json` (matches `build.gradle`) | `d76b1da` (pass), `70dbca0` (fail) |
+| EAS dashboard showed the build's version as `appVersionName (appVersionCode)` instead of `2.0.0 (6001)`. EAS did not resolve the version of an app built without Expo | Run 01a15f00, build job header |
+| "Install custom tools" step finished with a warning (⚠, 10 s); content not captured | Run 01a15f00 |
 
-Rerun results, timings, queue time and approval evidence will be added here when the runs finish.
+### 7.2 Successful run: `01a15f00` (passing branch, started 21 Oct 2026 20:37 IST, manual trigger)
+
+**Status: Succeeded. Total duration 2 h 33 min 0 s.**
+
+| Job | Result | Waiting to start | Job duration | Notable steps |
+|---|---|---|---|---|
+| Lint, typecheck and test | ✅ | 32 min 13 s | 24 s | `npm ci` 8 s, lint and typecheck 4 s, tests 9 s |
+| Android release APK (EAS Build) | ✅ | 34 min 4 s | 6 min 53 s | Install dependencies 12 s, **Run gradlew 5 min 58 s**, restore cache 3 s, save cache 1 s; prebuild skipped (bare app) |
+| Manifest, checksum and mock publishing gate | ✅ | 36 min 46 s | 18 s | Install node modules 11 s, download build 3 s, manifest + verification + gate < 1 s |
+| Human approval (`require-approval`) | ✅ | n/a | n/a | **Approved by `keerthanadasari123` at 21 Oct 2026, 22:33 IST** (shown on the run page) |
+| Record approval (nothing published) | ✅ | 37 min 28 s | 1 s | Printed "APPROVAL GRANTED in EAS. Nothing was published; store publishing stays SIMULATED" |
+
+**Artifacts:**
+
+- `equipdemo-comparison` (16.63 MiB, `artifacts.tar.gz`): the manifest, checksum and gate files.
+- The EAS application archive (the APK), installable from the run page.
+
+**Where the time went.** Each job's "Waiting to start" counts from the moment that job could start.
+
+| | Time | What it covers |
+|---|---|---|
+| Waiting in queue | about 2 h 20 min | The four waits added together: 32 min 13 s + 34 min 4 s + 36 min 46 s + 37 min 28 s |
+| Active work | about 7 min 36 s | 24 s + 6 min 53 s + 18 s + 1 s |
+| Waiting for the approver | about 5 min | 22:28 to 22:33 |
+
+Added in sequence, these end at about 23:10 IST. That agrees with the reported 2 h 33 min. The account is on Expo's Free plan, whose builds are low priority (Expo documentation). That is the likely cause of the waits, but it was not measured on a paid plan.
+
+### 7.3 What the success shows, and what was not captured
+
+Each step exits with an error when its check fails, so the job results show the following.
+
+**Tests.** The "Tests" step passed. It exits non-zero if any test fails, so every test passed. The number of tests was **not captured**; the same source commit gives 119 on the other platforms.
+
+**Manifest.** The "Manifest, checksum verification, mock gate" step passed. That step:
+
+- refuses to write a manifest unless the APK's versionCode equals 6001 and its versionName equals the app version
+- passes only if `cli.js verify` and `sha256sum -c` succeed
+- exits with an error if the mock publisher accepts production without approval
+
+So the APK carried build 6001, its checksum verified, and **the mock publishing gate held**. The log lines themselves (`TEST RESULTS`, `SOURCE REVISION`, the SHA-256, `MOCK PUBLISHING GATE HELD`) were **not captured**, so the APK's SHA-256 is not recorded here.
+
+**Source revision.** It was not captured from the log. It is inferred as `d76b1da`, the only commit on the passing branch that includes the `android.package` fix the build needed.
+
+**Not run:** the failing-commit run on `eas/trial-fail`. Whether EAS stops before building on a failing test is therefore **not demonstrated**. The workflow is written so it should: the build job `needs: [checks]`.
+
+### 7.4 Three-platform summary (passing commit)
+
+| | GitHub Actions | AWS CodeBuild | EAS Workflows |
+|---|---|---|---|
+| Result | ✅ build 1081 | ✅ build 5003 (after fix #19) | ✅ build 6001 (after `android.package` fix) |
+| Gradle build | 5 min 00 s (Gradle cache configured) | 7 min 44 s (no cache) | 5 min 58 s (EAS cache restored in 3 s; contents unknown) |
+| Active work | 8 min 04 s (incl. Version 1 compatibility) | ~9 min 29 s | ~7 min 36 s (no Version 1 compatibility job) |
+| Waiting | ~5 min before the first job | not recorded | ~2 h 20 min across four jobs (Free plan, low priority) |
+| Approval | Environments, required reviewers; approver via API | none in CodeBuild alone | `require-approval`; approver and time shown on the run |
+| Failing commit | ✅ stopped at tests | ✅ stopped at tests | **not run** |
+| Extra setup | none | CloudFormation stack | EAS CLI, `eas init`, GitHub link, `eas.json`, `android.package`; Expo SDK warning |
+
+As before, **no speed claim**:
+
+- There is one sample per platform.
+- Caches, Java vendors and machines differ.
+- The EAS figure is dominated by Free-plan queueing, which would change on a paid plan.
+
+**Decision (unchanged):** GitHub Actions stays primary. EAS showed the most mobile-specific features: managed build, installable artifact, approval with a recorded approver. Using it would mean reversing the project's no-Expo rule and accepting the Free plan's long queues, or paying for priority.

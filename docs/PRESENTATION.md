@@ -118,7 +118,7 @@ PROD tried to create the tag (PR #11, tag first, resumable PROD).
 | Release candidate | `com.equipmentdemo.app` | `X.Y.Z` | `1000 + run × 10 + attempt`, checked to be higher than every existing release | **IMPLEMENTED** (1031, 1041, 1052) |
 | Approved release | same | same | same binary, no rebuild | **IMPLEMENTED** |
 | CodeBuild comparison | same | same | `5000 + CodeBuild build number` (never promoted) | **IMPLEMENTED** (5003) |
-| EAS comparison | same | same | `6001` (never promoted) | **NOT COMPLETED** (see §9) |
+| EAS comparison | same | same | `6001` (never promoted) | **IMPLEMENTED** (run 01a15f00; value enforced by the manifest step, log line not captured) |
 | iOS `CFBundleVersion` | — | — | same build number, recorded in the manifest | **DOCUMENTED** |
 
 The single source of truth for the version is `package.json`. `npm run version:set` changes it everywhere,
@@ -160,20 +160,22 @@ Details: [PLATFORM_COMPARISON.md](PLATFORM_COMPARISON.md).
 
 | | GitHub Actions | AWS CodeBuild | EAS Workflows |
 |---|---|---|---|
-| Status | **IMPLEMENTED** (baseline) | **IMPLEMENTED** (comparison only) | **NOT COMPLETED** (trial in progress) |
-| Passing commit | ✅ release build 1081, run 39596119673 | ✅ build 3 (5003): 119/119 tests, checksum `OK`, mock gate held | 1st run: checks ✅, **build failed** (`android.package` missing for GitHub-triggered builds); fixed on the trial branch, rerun pending |
-| Failing commit | ✅ stopped at the drill test (checks job 38 s) | ✅ stopped at the same test (49 s) | not yet run |
-| Working time, passing run | 8 min 04 s (+ ~5 min queued) | ~9 min 29 s | not measured |
-| Gradle build | 5 min 00 s (Gradle cache configured) | 7 min 44 s (no cache) | not measured |
-| Failed runs and why | — | build 1 (exit 141), our script's bug, fixed in PR #19 | run 1: config required by EAS for bare RN |
-| Approvals | Environments, required reviewers (**IMPLEMENTED**) | none in CodeBuild alone; CodePipeline (**DOCUMENTED**) | `require-approval` job: in the trial workflow, **not yet run** |
+| Status | **IMPLEMENTED** (baseline) | **IMPLEMENTED** (comparison only) | **IMPLEMENTED** for the passing commit (trial branch only); failing-commit run **NOT COMPLETED** |
+| Passing commit | ✅ release build 1081, run 39596119673 | ✅ build 3 (5003): 119/119 tests, checksum `OK`, mock gate held | ✅ run 01a15f00 succeeded: checks, EAS Build (6001), manifest + checksum + mock gate, approval. Test count and log lines not captured |
+| Failing commit | ✅ stopped at the drill test (checks job 38 s) | ✅ stopped at the same test (49 s) | **not run** |
+| Working time, passing run | 8 min 04 s (+ ~5 min queued) | ~9 min 29 s | ~7 min 36 s active, + ~2 h 20 min waiting in the Free-plan queue (total 2 h 33 min) |
+| Gradle build | 5 min 00 s (Gradle cache configured) | 7 min 44 s (no cache) | 5 min 58 s (EAS cache step 3 s, contents unknown) |
+| Failed runs and why | — | build 1 (exit 141), our script's bug, fixed in PR #19 | run 1: `android.package` required in `app.json` for a bare app |
+| Approvals | Environments, required reviewers (**IMPLEMENTED**) | none in CodeBuild alone; CodePipeline (**DOCUMENTED**) | `require-approval`: **IMPLEMENTED**; run page shows approver and time (22:33 IST) |
 | Setup | workflow files in the repo | CloudFormation stack (role, bucket, logs, project); manual start per build | EAS CLI, `eas init`, GitHub connection, `eas.json`, `android.package`; Expo SDK version warning (no `expo` package) |
-| Cost here | free (public repo) | ~20 build-minutes on medium (exact charge: AWS Billing, not yet read) | free plan; build quota and queue not yet measured |
+| Cost here | free (public repo) | ~20 build-minutes on medium (exact charge: AWS Billing, not yet read) | Free plan: 1 build used; long low-priority queue |
 
 **Decision:** keep GitHub Actions as the primary platform; consider CodeBuild for AWS-native steps once the
 Amplify backend exists. **No speed or safety claim**: one passing sample per platform, different memory
-(16 GB vs 7 GB), caches, JDK vendor and region. The EAS column will be completed from its runs; EAS stays on
-the trial branches only (AGENTS.md keeps EAS configuration out of `main`).
+(16 GB vs 7 GB), caches, JDK vendor and region. EAS's long wait reflects the Free plan's low-priority queue, not
+build speed. EAS stays on the trial branches only (AGENTS.md keeps EAS configuration out of `main`). EAS offered the most
+mobile-specific features (managed build, installable artifact, approval with recorded approver), at the cost of Expo-specific
+configuration and the queue.
 
 ## 10. Scaling, load balancing and monitoring
 
@@ -196,10 +198,10 @@ the trial branches only (AGENTS.md keeps EAS configuration out of `main`).
 | No iOS build | Half of the mobile pipeline untested | macOS runner (GitHub or EAS) once an Apple account exists |
 | Records are editable by repository admins | Not tamper-evident | Signed provenance (artifact attestations) |
 | Build-time backend configuration | One binary can't switch backends per stage | Runtime configuration, if per-stage backends are needed |
-| Platform comparison has 1 passing sample each, cold caches on CodeBuild | Runtime numbers aren't a benchmark | Caches + ≥5 runs each; finish the EAS trial |
+| Platform comparison has 1 passing sample each, cold caches on CodeBuild | Runtime numbers aren't a benchmark | Caches + ≥5 runs each; run the EAS failing-commit trial |
 | Insert is open to anyone with the app (no sign-in) | Spam possible in a real deployment | Auth + `authenticated` insert policy + rate limiting |
 | A latent flaky step went unseen (exit 141) | Could fail any release by chance | Fixed (PR #19); running on a second platform found it |
 
-**Next steps, in order:** (1) finish the EAS runs and fill §9; (2) per-stage backends; (3) real signing
+**Next steps, in order:** (1) run the EAS failing-commit trial; (2) per-stage backends; (3) real signing
 key; (4) iOS build; (5) Amplify migration via the existing adapter seam, with OIDC once permitted;
 (6) crash reporting; (7) load/scaling tests after migration.

@@ -55,7 +55,7 @@ To be clear about what's real: DEV and PROD are actual. SIT and PRE-PROD run rea
 but they share one Supabase project, so those environments are simulated. QA and UAT approvals are real GitHub approvals,
 but I fill every role myself, so they show the mechanism, not separation of duties."
 
-### 5:00–6:45: Failure and recovery (1.75 min)
+### 5:00–6:30: Failure and recovery (1.5 min)
 
 *Show: run 39587402651 (red), then 39593348460 (checksum drill).*
 
@@ -71,9 +71,9 @@ as a higher version through the same gates. The drill recovered source from the 
 It also taught us something: restoring a folder from a tag undid later good changes, so the runbook now prefers git revert.
 Store rollout halting and backend rollback are documented, not exercised."
 
-### 6:45–8:30: Three CI/CD platforms (1.75 min)
+### 6:30–8:30: Three CI/CD platforms (2 min)
 
-*Show: PLATFORM_COMPARISON.md §3.*
+*Show: PLATFORM_COMPARISON.md §3 and §7.4; optionally the EAS run page (expo.dev → equipdemo → Workflows → 01a15f00).*
 
 "We ran the same pipeline on AWS CodeBuild, on the same two commits.
 Both platforms passed the good commit with 119 of 119 tests, and both stopped the bad commit at the same test.
@@ -82,10 +82,13 @@ I am not claiming either is faster: one sample each, different memory, caches an
 CodeBuild's first build failed after building the APK with exit code 141. That was our own script: a pipe that had been passing
 on GitHub by luck. A second platform found a latent flaky step, and we fixed it everywhere.
 CodeBuild needed more setup, a CloudFormation stack and a manual start per build, and it has no approval step on its own.
-EAS Workflows is in progress: the checks passed, the first build failed because EAS needs the Android package
-name in its own config for a non-Expo app, and the rerun is pending. So the EAS column is not completed."
-
-*(If EAS results exist by then, read them from §9 instead.)*
+Third, EAS Workflows from Expo, on a separate trial branch so main stays free of Expo.
+The first build failed because EAS wants the Android package name in its own config for a non-Expo app; after adding it,
+the full run succeeded: checks, an EAS-built APK with build number 6001, the checksum and mock publishing gate, and an approval step.
+The run page records who approved and when, which is a nice audit trail.
+The Gradle build took about 6 minutes and the active work about 7 and a half. But the whole run took 2 hours 33 minutes,
+because on the free plan each job waited over half an hour in a low-priority queue. That's a plan limit, not build speed.
+We haven't run the failing commit on EAS yet, so that part is not completed."
 
 "Decision: GitHub Actions stays primary, because it already carries our approvals and release records and costs nothing here."
 
@@ -103,7 +106,7 @@ Load balancing and autoscaling are a documented test plan only. Supabase is the 
 *Show: PRESENTATION.md §11.*
 
 "The main limits: one shared Supabase project, debug-key signing, one person in every approver role, no iOS build,
-and no crash reporting in the app. Next: finish the EAS comparison, separate backends per stage, a real signing key,
+and no crash reporting in the app. Next: run the failing commit on EAS, separate backends per stage, a real signing key,
 iOS, then the Amplify migration through the adapter seam we already have. Thank you."
 
 ---
