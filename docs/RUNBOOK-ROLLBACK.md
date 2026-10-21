@@ -32,8 +32,9 @@ A mobile binary can't really be "un-released": a lower build number can't be ins
    ```
    git checkout main && git pull
    git checkout -b fix/rollback-<version>
-   git revert <bad-commit>            # or, to restore whole areas from a known-good tag:
-   git checkout v1.1.2 -- src         #   restore app code exactly as released in v1.1.2
+   git revert <bad-commit>            # PREFERRED: undoes only the bad change
+   git checkout v1.1.2 -- src         # LAST RESORT: restores app code exactly as released in v1.1.2,
+                                      # which also undoes every later change in src/, good or bad
    npm run version:set 2.0.1          # NEW version number, always higher
    ```
 3. **Open a PR.** CI must be green, including **Version 1 compatibility**, then merge.
@@ -61,8 +62,9 @@ Emergency option for **internal testers only**: they may uninstall and install t
 
 ## Path C: bad commit on `main`, nothing released (source recovery)
 
-1. `git revert <bad-commit>` on a branch → PR → CI green → merge. Or restore files from the last good tag:
-   `git checkout <tag> -- <paths>`.
+1. `git revert <bad-commit>` on a branch → PR → CI green → merge. Only if the bad change can't be isolated,
+   restore files from the last good tag with `git checkout <tag> -- <paths>`, then re-apply any good changes
+   made since that tag. The drill showed CI stays green even when later good changes are lost, so check the diff.
 2. Confirm `main` is green again (Actions → CI on `main`).
 3. Nothing to roll back in releases: a failing commit can't produce a candidate (release checks run first).
 
