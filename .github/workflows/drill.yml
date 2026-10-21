@@ -1,0 +1,116 @@
+name: Failure drill
+
+# Safe, repeatable failure drills (docs/DRILLS.md). Read-only: downloads release
+# files into the runner, never changes releases, tags, records or stores.
+# A drill PASSES when the safeguard works (e.g. the corrupted artifact is rejected).
+#
+#   checksum  corrupt a downloaded copy of a release APK; release verification AND
+#             the publishing adapter must both reject it (and accept the original)
+#   recovery  find the known-good approved releases, prove their binaries, records
+#             and source revisions are intact, and print the recovery options
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Drill to run
+        required: true
+        type: choice
+        options: [checksum, recovery]
+      release_tag:
+        description: Release to use (default = latest approved release)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    name: Drill - ${{ inputs.scenario }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG_INPUT: ${{ inputs.release_tag }}
+    steps:
+      - name: Check out tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pick the release
+        id: pick
+        run: |
+          tag="${TAG_INPUT:-$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Using release $tag"
+
+      - name: 'Checksum drill: original verifies, corrupted copy is rejected twice'
+        if: inputs.scenario == 'checksum'
+        env:
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          gh release download "$TAG" --dir original --pattern '*.apk' --pattern 'release-manifest.json' \
+            --pattern 'release-record.json' --pattern 'SHA256SUMS.txt'
+          cp -r original corrupted
+          printf 'x' >> corrupted/*.apk
+          node scripts/publish/cli.js metadata --out meta.json --application-id com.equipmentdemo.app \
+            --track internal --rollout 100 --notes "Drill" > /dev/null
+
+          echo "--- 1. original artifact must verify"
+          node scripts/release/cli.js verify original
+          node scripts/publish/cli.js validate --target mock --dir original --metadata meta.json
+
+          echo "--- 2. corrupted copy must be rejected by release verification"
+          if node scripts/release/cli.js verify corrupted; then
+            echo "::error title=DRILL FAILED::A corrupted artifact passed release verification"; exit 1
+          fi
+          echo "--- 3. corrupted copy must be rejected by the publishing adapter"
+          if node scripts/publish/cli.js validate --target mock --dir corrupted --metadata meta.json; then
+            echo "::error title=DRILL FAILED::The publishing adapter accepted a corrupted artifact"; exit 1
+          fi
+          sha=$(sha256sum original/*.apk | cut -d' ' -f1)
+          {
+            echo "### Drill passed: invalid checksum rejected"
+            echo ""
+            echo "| Check on \`$TAG\` | Result |"
+            echo "|---|---|"
+            echo "| Original APK (SHA-256 \`${sha:0:16}…\`) verifies | ✅ accepted |"
+            echo "| Copy with 1 extra byte → release verification | ✅ rejected |"
+            echo "| Same copy → publishing adapter (mock) | ✅ rejected, nothing published |"
+            echo ""
+            echo "Only a copy inside this runner was modified; the stored release is unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 'Recovery drill: known-good releases are intact and traceable'
+        if: inputs.scenario == 'recovery'
+        run: |
+          {
+            echo "### Drill: known-good revisions available for recovery"
+            echo ""
+            echo "| Release | Build | Source commit | Tag → commit | Binary verifies | Stages | Usable for recovery |"
+            echo "|---|---|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ok=0
+          for tag in $(gh api "repos/$GH_REPO/releases?per_page=20" --jq '.[] | select(.prerelease == false) | .tag_name' | head -3); do
+            rm -rf "r-$tag"; gh release download "$tag" --dir "r-$tag" > /dev/null
+            commit=$(node -p "require('./r-$tag/release-record.json').source.commit")
+            build=$(node -p "require('./r-$tag/release-record.json').buildNumber")
+            stages=$(node -p "require('./r-$tag/release-record.json').stages.map(s => s.stage).join(' → ')")
+            tag_commit=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha)
+            tag_ok=$([ "$tag_commit" = "$commit" ] && echo ✅ || echo ❌)
+            bin_ok=$(node scripts/release/cli.js verify "r-$tag" --commit "$commit" > /dev/null 2>&1 && echo ✅ || echo ❌)
+            usable=$([ "$tag_ok$bin_ok" = "✅✅" ] && echo yes || echo NO)
+            [ "$usable" = yes ] && ok=$((ok + 1))
+            echo "| \`$tag\` | $build | \`${commit:0:7}\` | $tag_ok | $bin_ok | $stages | $usable |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          {
+            echo ""
+            echo "**Recovery options** (docs/RUNBOOK-ROLLBACK.md):"
+            echo "- *Code:* restore source from the newest usable tag (\`git revert\` the bad change, or \`git checkout <tag> -- src\`), then release it as a new version through all gates."
+            echo "- *Binary:* the listed APKs are intact, but Android will not install a lower build number over a higher one, so mobile recovery is a roll-forward."
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$ok" -ge 1 ] || { echo "::error title=DRILL FAILED::No usable known-good release found"; exit 1; }
+          echo "✓ $ok known-good release(s) verified"
