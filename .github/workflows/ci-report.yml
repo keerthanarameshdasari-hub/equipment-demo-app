@@ -1,0 +1,55 @@
+name: CI monitoring report
+
+# Collects CI/CD pipeline results (job outcomes, failing steps, durations,
+# artifacts, releases) into a report. Pipeline health only, not app or backend
+# health (docs/OPERATIONS.md). Read-only: uses no secrets and changes nothing.
+
+on:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  report:
+    name: Build CI monitoring report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out reporting script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect run, job, artifact and release data (last 30 days)
+        run: |
+          mkdir -p data
+          since=$(date -u -d '30 days ago' +%Y-%m-%d)
+          gh api --paginate "repos/$GH_REPO/actions/runs?per_page=100&created=>=$since" \
+            --jq '.workflow_runs[]' | jq -s '{workflow_runs: .}' > data/runs.json
+          jq -r '.workflow_runs[] | select(.conclusion == "failure") | .id' data/runs.json | while read -r id; do
+            gh api "repos/$GH_REPO/actions/runs/$id/jobs" --jq "{runId: $id, jobs: .jobs}"
+          done | jq -s '.' > data/jobs.json
+          gh api --paginate "repos/$GH_REPO/actions/artifacts?per_page=100" --jq '.artifacts[]' \
+            | jq -s '{artifacts: .}' > data/artifacts.json
+          gh api "repos/$GH_REPO/releases?per_page=50" > data/releases.json
+          echo "Runs: $(jq '.workflow_runs | length' data/runs.json)"
+
+      - name: Build report
+        run: |
+          node scripts/ops/ci-report.js --runs data/runs.json --jobs data/jobs.json \
+            --artifacts data/artifacts.json --releases data/releases.json --out report > /dev/null
+          cat report/ci-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-report-${{ github.run_id }}
+          path: report/
+          retention-days: 90
