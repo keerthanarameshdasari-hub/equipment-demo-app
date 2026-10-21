@@ -13,6 +13,7 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **Secrets:** GitHub environment secrets; AWS via OIDC, no stored keys ([docs/SECRETS.md](docs/SECRETS.md))
 - **Operations:** CI monitoring report, failure drills, rollback runbook ([docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/DRILLS.md](docs/DRILLS.md), [docs/RUNBOOK-ROLLBACK.md](docs/RUNBOOK-ROLLBACK.md))
 - **Distribution:** internal only; no app store is used
+- **Presentation:** status of every capability and a 10-minute demo script ([docs/PRESENTATION.md](docs/PRESENTATION.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md))
 
 ## Prerequisites
 

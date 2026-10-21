@@ -199,3 +199,18 @@ The scores apply **to this project only**: a public repository, one developer, m
 - Read the actual CodeBuild charge from AWS Billing.
 
 **Cleanup:** to stop all AWS charges and storage for the comparison, delete the CloudFormation stack. Empty the S3 bucket first, because CloudFormation can't delete a bucket that still holds objects.
+
+## 7. Third platform: EAS Workflows (NOT COMPLETED, in progress)
+
+Configured on trial branches only (`eas/trial-pass` = `63b549e` + EAS config, `eas/trial-fail` = `44ff925` + the same
+config), because AGENTS.md keeps EAS configuration out of `main`. Same steps: checks job, EAS Build (Android release
+APK, build number 6001), manifest/checksum/mock-gate job, and a `require-approval` job.
+
+| Observation so far (21 Oct 2026) | Evidence |
+|---|---|
+| `eas init` linked the project but warned it "cannot determine which native SDK version your project uses because the module `expo` is not installed" | operator terminal output |
+| Workflows were triggered through Expo's GitHub integration (repository connected in Expo) | operator |
+| Run 1 (passing commit): **checks job passed**; **build failed**: "The `android.package` is required to be set in app config for builds triggered by GitHub integration" | operator screenshot / message |
+| Fix: `android.package = com.equipmentdemo.app` added to `app.json` on both trial branches (matches `build.gradle`) | commit `70dbca0` and its copy on `eas/trial-fail` |
+
+Rerun results, timings, queue time and approval evidence will be added here when the runs finish.
