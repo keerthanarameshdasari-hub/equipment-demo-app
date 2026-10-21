@@ -127,7 +127,8 @@ const commands = {
     fs.copyFileSync(apkPath, target);
     const sha256 = lib.sha256File(target);
     const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-    const runUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+    // Other CI platforms (e.g. AWS CodeBuild) set CI_RUN_URL / CI_PLATFORM; default is GitHub Actions.
+    const runUrl = env.CI_RUN_URL || `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
 
     const manifest = lib.createManifest({
       version,
@@ -139,7 +140,7 @@ const commands = {
       commit: env.GITHUB_SHA,
       ref: env.GITHUB_REF,
       timestamp,
-      workflow: env.GITHUB_WORKFLOW,
+      workflow: env.CI_PLATFORM ? `${env.CI_PLATFORM}: ${env.GITHUB_WORKFLOW}` : env.GITHUB_WORKFLOW,
       runId: Number(env.GITHUB_RUN_ID),
       runNumber: Number(env.GITHUB_RUN_NUMBER),
       runAttempt: Number(env.GITHUB_RUN_ATTEMPT),
@@ -148,7 +149,7 @@ const commands = {
         node: process.version,
         java: args.java,
         reactNative: readJson(PACKAGE_JSON).dependencies['react-native'],
-        runner: env.ImageOS ? `${env.ImageOS} ${env.ImageVersion}` : undefined,
+        runner: env.ImageOS ? `${env.ImageOS} ${env.ImageVersion}` : env.CODEBUILD_BUILD_IMAGE,
       },
       artifactFile,
       sizeBytes: fs.statSync(target).size,
