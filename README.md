@@ -11,6 +11,7 @@ users add items. It is a proof of concept for a mobile CI/CD pipeline built on G
 - **Publishing:** replaceable store adapter; the default mock is SIMULATED and contacts no store ([docs/PUBLISHING.md](docs/PUBLISHING.md))
 - **Backend seam:** UI depends only on a repository interface; AWS Amplify adapter contract documented ([docs/AWS_MIGRATION.md](docs/AWS_MIGRATION.md))
 - **Secrets:** GitHub environment secrets; AWS via OIDC, no stored keys ([docs/SECRETS.md](docs/SECRETS.md))
+- **Operations:** CI monitoring report, failure drills, rollback runbook ([docs/OPERATIONS.md](docs/OPERATIONS.md), [docs/DRILLS.md](docs/DRILLS.md), [docs/RUNBOOK-ROLLBACK.md](docs/RUNBOOK-ROLLBACK.md))
 - **Distribution:** internal only; no app store is used
 
 ## Prerequisites
