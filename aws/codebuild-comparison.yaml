@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  equipDemo platform comparison: an AWS CodeBuild project that runs the same
+  representative pipeline as GitHub Actions (install, lint, typecheck, tests,
+  Android release APK, manifest + checksum, verification, mock publishing gate)
+  on an exact source commit. Artifacts go to a private S3 bucket (30-day expiry).
+  See docs/PLATFORM_COMPARISON.md.
+
+Parameters:
+  RepositoryUrl:
+    Type: String
+    Default: https://github.com/keerthanarameshdasari-hub/equipment-demo-app.git
+    Description: Public repository (cloned without credentials)
+  ComputeType:
+    Type: String
+    Default: BUILD_GENERAL1_MEDIUM
+    AllowedValues: [BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE]
+    Description: MEDIUM = 4 vCPU / 7 GB. SMALL (free tier) is likely too small for the Android build.
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-comparison-artifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  BuildLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /equipdemo/codebuild-comparison
+      RetentionInDays: 30
+
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: equipdemo-codebuild-comparison
+      Description: Service role for the equipDemo CodeBuild comparison project (logs + artifact bucket only)
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: logs-and-artifacts-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${BuildLogs.Arn}:*'
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetBucketLocation]
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub '${ArtifactBucket.Arn}/*'
+
+  ComparisonProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: equipdemo-comparison
+      Description: Same representative pipeline as GitHub Actions, for platform comparison
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 60
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:8.0 # Ubuntu 24.04, like GitHub's ubuntu-24.04 runner
+        ComputeType: !Ref ComputeType
+        EnvironmentVariables:
+          - Name: SOURCE_COMMIT
+            Value: main
+            Type: PLAINTEXT
+          - Name: REPO_URL
+            Value: !Ref RepositoryUrl
+            Type: PLAINTEXT
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogs
+      Artifacts:
+        Type: S3
+        Location: !Ref ArtifactBucket
+        Name: equipdemo
+        NamespaceType: BUILD_ID
+        Packaging: NONE
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+            variables:
+              ANDROID_HOME: /opt/android-sdk
+              NDK_VERSION: 27.1.12297006
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 22
+                java: corretto17
+              commands:
+                - date +%s > /tmp/t_install
+                - |
+                  set -euo pipefail
+                  mkdir -p "$ANDROID_HOME/cmdline-tools"
+                  for v in 13114758 11076708; do
+                    curl -fsSL -o /tmp/clt.zip "https://dl.google.com/android/repository/commandlinetools-linux-${v}_latest.zip" && break
+                  done
+                  unzip -q /tmp/clt.zip -d /tmp/clt
+                  mv /tmp/clt/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+                  sdk="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+                  (yes || true) | "$sdk" --licenses > /dev/null
+                  for attempt in 1 2 3; do
+                    "$sdk" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION" > /dev/null && break
+                    echo "sdkmanager attempt $attempt failed; retrying"; sleep 10
+                  done
+                  test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"
+                  echo "Android SDK ready"
+            pre_build:
+              commands:
+                - date +%s > /tmp/t_checks
+                - |
+                  set -euo pipefail
+                  mkdir -p "$CODEBUILD_SRC_DIR/app" "$CODEBUILD_SRC_DIR/reports" && cd "$CODEBUILD_SRC_DIR/app"
+                  git init -q . && git remote add origin "$REPO_URL"
+                  git fetch -q --depth 1 origin "$SOURCE_COMMIT" && git checkout -q FETCH_HEAD
+                  echo "SOURCE REVISION: $(git rev-parse HEAD) (requested: $SOURCE_COMMIT)"
+                  tracked=$(git ls-files | grep -E '(^|/)\.env($|\.)|\.(jks|p12|p8|pem|key)$' | grep -vE '(^|/)\.env\.example$' || true)
+                  [ -z "$tracked" ] || { echo "Secret file guard: remove $tracked"; exit 1; }
+                  node scripts/release/cli.js version-check
+                  npm ci --no-audit --no-fund
+                  npm run lint
+                  npm run typecheck
+                  npm test -- --ci --json --outputFile="$CODEBUILD_SRC_DIR/reports/jest-results.json"
+              finally:
+                - |
+                  f="$CODEBUILD_SRC_DIR/reports/jest-results.json"
+                  [ -f "$f" ] && node -e 'const r=require(process.argv[1]);console.log(`TEST RESULTS: ${r.numPassedTests} passed, ${r.numFailedTests} failed, ${r.numTotalTests} total`)' "$f" || true
+                  date +%s > /tmp/t_checks_end
+            build:
+              commands:
+                - date +%s > /tmp/t_build
+                - |
+                  set -euo pipefail
+                  cd "$CODEBUILD_SRC_DIR/app"
+                  # Comparison builds use 5000+ so they never collide with GitHub release build numbers.
+                  BN=$((5000 + CODEBUILD_BUILD_NUMBER))
+                  (cd android && ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,x86_64 -PappVersionCode=$BN)
+                  apk=android/app/build/outputs/apk/release/app-release.apk
+                  aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
+                  "$aapt2" dump badging "$apk" | head -1 | tee badging.txt
+                  version=$(node -p "require('./package.json').version")
+                  export GITHUB_SHA="$(git rev-parse HEAD)" GITHUB_REPOSITORY="keerthanarameshdasari-hub/equipment-demo-app" \
+                    GITHUB_REF="$SOURCE_COMMIT" GITHUB_WORKFLOW="equipdemo-comparison" GITHUB_RUN_ID="$CODEBUILD_BUILD_NUMBER" \
+                    GITHUB_RUN_NUMBER="$CODEBUILD_BUILD_NUMBER" GITHUB_RUN_ATTEMPT=1 \
+                    CI_PLATFORM="AWS CodeBuild" CI_RUN_URL="codebuild:$CODEBUILD_BUILD_ID"
+                  node scripts/release/cli.js manifest --apk "$apk" --badging badging.txt \
+                    --rc-tag "v${version}-rc.1" --build-number "$BN" --out "$CODEBUILD_SRC_DIR/dist" \
+                    --ci-artifact "s3:codebuild/$CODEBUILD_BUILD_NUMBER" --retention-days 30 --java "$(java -version 2>&1 | head -1)"
+                  echo "--- checksum verification"
+                  node scripts/release/cli.js verify "$CODEBUILD_SRC_DIR/dist" --commit "$GITHUB_SHA" --version "$version"
+                  (cd "$CODEBUILD_SRC_DIR/dist" && sha256sum -c SHA256SUMS.txt)
+                  echo "--- mock publishing gate: production without approval must be refused"
+                  node scripts/publish/cli.js metadata --out "$CODEBUILD_SRC_DIR/dist/publish-metadata.json" \
+                    --application-id com.equipmentdemo.app --track production --rollout 10 --notes "CodeBuild comparison" > /dev/null
+                  if node scripts/publish/cli.js validate --target mock --dir "$CODEBUILD_SRC_DIR/dist" \
+                       --metadata "$CODEBUILD_SRC_DIR/dist/publish-metadata.json" --log "$CODEBUILD_SRC_DIR/dist/publish-gate-log.json"; then
+                    echo "GATE FAILED: production publishing accepted without approval"; exit 1
+                  fi
+                  echo "MOCK PUBLISHING GATE HELD: production refused (no PROD stage, no approval); nothing published (SIMULATED)"
+              finally:
+                - date +%s > /tmp/t_build_end
+            post_build:
+              commands:
+                - |
+                  t() { [ -f "$1" ] && cat "$1" || echo 0; }
+                  i=$(t /tmp/t_install); c=$(t /tmp/t_checks); ce=$(t /tmp/t_checks_end); b=$(t /tmp/t_build); be=$(t /tmp/t_build_end)
+                  echo "PHASE SECONDS: install=$((c - i)) checks=$((ce - c)) android+artifact+gate=$(( be > b ? be - b : 0 ))"
+                  echo "BUILD RESULT: $CODEBUILD_BUILD_SUCCEEDING (1 = success so far)"
+          artifacts:
+            base-directory: dist
+            files:
+              - '**/*'
