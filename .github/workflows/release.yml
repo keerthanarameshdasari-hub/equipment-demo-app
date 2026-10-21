@@ -135,7 +135,8 @@ jobs:
         run: |
           apk=android/app/build/outputs/apk/release/app-release.apk
           aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
-          "$aapt2" dump badging "$apk" | head -1 | tee badging.txt
+          "$aapt2" dump badging "$apk" > badging.txt   # whole output to a file: piping into head can SIGPIPE (exit 141)
+          head -1 badging.txt
 
           prefix=""; [ "$REHEARSAL" = true ] && prefix="rehearsal-"
           artifact="${prefix}equipdemo-${RC_TAG}-build${BUILD_NUMBER}"

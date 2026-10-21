@@ -160,7 +160,8 @@ Resources:
                   (cd android && ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,x86_64 -PappVersionCode=$BN)
                   apk=android/app/build/outputs/apk/release/app-release.apk
                   aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
-                  "$aapt2" dump badging "$apk" | head -1 | tee badging.txt
+                  "$aapt2" dump badging "$apk" > badging.txt   # no pipe into head: avoids SIGPIPE (exit 141)
+                  head -1 badging.txt
                   version=$(node -p "require('./package.json').version")
                   export GITHUB_SHA="$(git rev-parse HEAD)" GITHUB_REPOSITORY="keerthanarameshdasari-hub/equipment-demo-app" \
                     GITHUB_REF="$SOURCE_COMMIT" GITHUB_WORKFLOW="equipdemo-comparison" GITHUB_RUN_ID="$CODEBUILD_BUILD_NUMBER" \
