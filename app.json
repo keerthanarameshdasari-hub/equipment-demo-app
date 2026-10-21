@@ -1,4 +1,9 @@
 {
   "name": "equipDemo",
-  "displayName": "equipDemo"
+  "displayName": "equipDemo",
+  "extra": {
+    "eas": {
+      "projectId": "cedb5e33-4024-4927-b94b-a764864c9c29"
+    }
+  }
 }
