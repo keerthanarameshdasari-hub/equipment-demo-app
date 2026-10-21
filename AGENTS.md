@@ -38,3 +38,10 @@ Run tests and typecheck before declaring any task done.
 - `babel.config.js` inlines ONLY allow-listed variables into the bundle. Never add server-side
   secrets (service-role keys, AWS credentials) to that list or to the app.
 - `.env` files, keystores and signing certificates are git-ignored and must stay out of the repo.
+
+## Data layer
+
+- UI code (screens, ui, navigation, domain, App.tsx) must not import backend SDKs or backend-specific
+  modules; ESLint enforces this. New backends implement `EquipmentRepository` and must pass
+  `__tests__/repositoryContract.test.ts`. See `docs/AWS_MIGRATION.md`.
+- AWS access from CI uses GitHub OIDC only; never add long-lived AWS keys. See `docs/SECRETS.md`.
