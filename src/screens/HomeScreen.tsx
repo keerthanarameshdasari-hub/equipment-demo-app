@@ -17,7 +17,6 @@ import {
   type Equipment,
 } from '../domain/equipment';
 import { toUserMessage } from '../data/DataError';
-import { DATA_SOURCE_LABELS } from '../data/EquipmentRepository';
 import { useEquipmentRepository } from '../data/RepositoryContext';
 import type { RootStackParamList } from '../navigation/types';
 import { colors } from '../ui/theme';
@@ -85,7 +84,7 @@ export function HomeScreen({ navigation, route }: Props) {
         testID="data-source"
         style={[styles.badge, repository.source === 'mock' ? styles.badgeDemo : styles.badgeLive]}
       >
-        {DATA_SOURCE_LABELS[repository.source]}
+        {repository.source === 'mock' ? 'Demo data (no backend configured)' : 'Live data · Supabase'}
       </Text>
       <View style={styles.actions}>
         <Pressable
