@@ -48,6 +48,11 @@
 
 ### AWS (only if an AWS account is available)
 
+**Organization policy (checked first):** if the account belongs to an AWS Organization, its Service
+Control Policies (SCPs) must not deny `iam:CreateOpenIDConnectProvider` (or the GitHub provider must
+already exist), nor `sts:AssumeRoleWithWebIdentity` for the role. An SCP deny cannot be overridden from
+inside the account, not even by an administrator.
+
 **Account and IAM permissions needed by the person doing the setup:** an AWS account and permission to run
 CloudFormation with IAM resources: `cloudformation:*` on the stack, `iam:CreateRole`, `iam:PutRolePolicy`,
 `iam:CreateOpenIDConnectProvider` (unless the GitHub provider already exists), `iam:GetRole` and
@@ -64,6 +69,23 @@ these for a personal demo account. Cost: one Secrets Manager secret (about US$0.
    `main` only → add **environment variables** `AWS_ROLE_ARN`, `AWS_REGION`, `AWS_DEMO_SECRET_ID` with
    the three output values. These are identifiers, not secrets; no AWS keys are added anywhere.
 6. Run the workflow.
+
+## Result in this project (21 Oct 2026)
+
+| Step | Outcome |
+|---|---|
+| Baseline GitHub encrypted secret | Works (see the workflow run) |
+| CloudFormation stack, first run with `CreateOidcProvider=false` | Role and demo secret created, but no GitHub identity provider exists in the account |
+| Workflow AWS job | Failed safely: `AssumeRoleWithWebIdentity` refused ("web identity token could not be validated") because the role trusts a provider that doesn't exist. No credentials were issued, no secret was read, nothing was printed |
+| Stack update to `CreateOidcProvider=true` | **Blocked**: `iam:CreateOpenIDConnectProvider` has an *explicit deny in a service control policy* of the AWS Organization the account belongs to. CloudFormation rolled back cleanly |
+
+**Conclusion:** OIDC federation can't be completed in this account until an organization administrator
+either (a) creates the `token.actions.githubusercontent.com` provider (audience `sts.amazonaws.com`) in
+this account, or (b) excludes this account from that SCP statement. Alternatively, use an AWS account that
+is not under this SCP. Long-lived access keys were deliberately **not** used as a workaround.
+
+**To finish once the provider exists:** update the stack with `CreateOidcProvider=false` (the provider now
+exists), keep the `AWS-DEMO` variables, and re-run the workflow.
 
 **Clean-up:** delete the CloudFormation stack (removes role, secret and provider if created by it).
 Secrets Manager keeps a deleted secret recoverable for 7–30 days.
