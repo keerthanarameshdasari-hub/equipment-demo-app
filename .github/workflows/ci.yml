@@ -229,7 +229,8 @@ jobs:
           apk=android/app/build/outputs/apk/debug/app-debug.apk
           # Read the identity from the APK itself, not from source files.
           aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
-          badging=$("$aapt2" dump badging "$apk" | head -1)
+          "$aapt2" dump badging "$apk" > badging-full.txt   # no pipe into head: avoids SIGPIPE (exit 141)
+          badging=$(head -1 badging-full.txt)
           echo "$badging"
           app_id=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")
           code=$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" <<< "$badging")
