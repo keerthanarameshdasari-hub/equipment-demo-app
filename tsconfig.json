@@ -1,8 +1,9 @@
 {
+  "//": "customer-mobile (the React Native app at the repo root). Other units have their own tsconfig.",
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "types": ["jest", "node"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods"]
+  "exclude": ["**/node_modules", "**/Pods", "apps", "packages", "infra", "dist"]
 }

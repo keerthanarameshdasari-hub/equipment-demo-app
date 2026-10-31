@@ -4,6 +4,10 @@ name: CI
 #   checks:    secret-file guard -> version consistency -> npm ci -> lint -> typecheck -> tests
 #   v1-compat: Version 1's own tests at its release tag, and the same tests run against the current code
 #   android: (only if checks pass) development APK with bundled JS -> artifact
+#   scope:   path-aware gate. On pull requests that touch only other units (apps/, packages/,
+#            infra/, docs), v1-compat and android are skipped (skipped jobs count as passed).
+#            Pushes, manual runs and release.yml calls always run everything.
+#            The other units have their own workflow: units.yml.
 # Development builds use the ".dev" app ID, versionCode = CI run number and
 # versionName "<version>-dev.<run>", separate from release numbering (docs/RELEASES.md).
 # Also called by release.yml (workflow_call) to run the same checks before a release build.
@@ -37,6 +41,32 @@ env:
   JAVA_VERSION: '17'
 
 jobs:
+  scope:
+    name: Affected units
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      customer_mobile: ${{ steps.units.outputs.customer_mobile }}
+    steps:
+      - name: Check out code (with history, to diff against the base branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out affected units (scripts/ci/changed-units.js)
+        id: units
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node scripts/ci/changed-units.js --base "$BASE_SHA" --head "$HEAD_SHA"
+          else
+            node scripts/ci/changed-units.js --all
+          fi
+
   checks:
     name: Lint, typecheck and test
     runs-on: ubuntu-24.04
@@ -121,7 +151,8 @@ jobs:
 
   v1-compat:
     name: Version 1 compatibility
-    needs: checks
+    needs: [checks, scope]
+    if: needs.scope.outputs.customer_mobile == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -167,10 +198,11 @@ jobs:
 
   android:
     name: Android debug APK
-    needs: checks
-    # Skipped only when release.yml calls this workflow with build-debug-apk: false.
-    # (Compared as text: GitHub coerces a missing input and `false` both to 0.)
-    if: format('{0}', inputs.build-debug-apk) != 'false'
+    needs: [checks, scope]
+    # Skipped when release.yml calls this workflow with build-debug-apk: false
+    # (compared as text: GitHub coerces a missing input and `false` both to 0),
+    # or on a pull request that does not affect customer-mobile.
+    if: needs.scope.outputs.customer_mobile == 'true' && format('{0}', inputs.build-debug-apk) != 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

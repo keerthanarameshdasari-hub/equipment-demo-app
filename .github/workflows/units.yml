@@ -1,0 +1,187 @@
+name: Units
+
+# Path-aware CI for the workspace units: contracts, config, api, worker, admin-web,
+# workforce-mobile and infra. customer-mobile (repo root) keeps its own pipeline (ci.yml).
+#
+#   changes      which units a change affects (scripts/ci/changed-units.js) + boundary gate
+#   unit         per affected unit: lint -> typecheck -> test -> build   (matrix)
+#   integration  api + worker against PostgreSQL 17 (service container), when either is affected
+#   image        api/worker container images build (not pushed), when affected
+#   result       one stable status for branch protection
+#
+# Pull requests run only the affected units; pushes to main and manual runs run all.
+# Uses no secrets. Nothing is deployed or published.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: units-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  changes:
+    name: Affected units and boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.units.outputs.matrix }}
+      has_workspaces: ${{ steps.units.outputs.has_workspaces }}
+      backend: ${{ steps.units.outputs.backend }}
+      images: ${{ steps.units.outputs.images }}
+      has_images: ${{ steps.units.outputs.has_images }}
+    steps:
+      - name: Check out code (with history, to diff against the base branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Dependency boundaries (scripts/boundaries/check.js)
+        run: node scripts/boundaries/check.js
+
+      - name: Work out affected units
+        id: units
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node scripts/ci/changed-units.js --base "$BASE_SHA" --head "$HEAD_SHA"
+          else
+            node scripts/ci/changed-units.js --all
+          fi
+
+  unit:
+    name: ${{ matrix.unit }}
+    needs: changes
+    if: needs.changes.outputs.has_workspaces == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from package-lock.json
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint --workspace="${{ matrix.workspace }}"
+
+      - name: Typecheck
+        run: npm run typecheck --workspace="${{ matrix.workspace }}"
+
+      - name: Test
+        run: npm run test --workspace="${{ matrix.workspace }}"
+
+      - name: Build
+        run: npm run build --workspace="${{ matrix.workspace }}"
+
+  integration:
+    name: api + worker on PostgreSQL
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # postgres:17, pinned by digest (update deliberately).
+        image: postgres@sha256:31ba9c94a03ada9988f2bb493a22a75eef3a185884533e5cdbcd498ea835b08f
+        env:
+          # Disposable, job-scoped database reachable only from this runner: no password needed.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: equipdemo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d equipdemo_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/equipdemo_test
+      INTEGRATION_REQUIRED: '1'
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js (with npm download cache)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies from package-lock.json
+        run: npm ci --no-audit --no-fund
+
+      - name: Migrate, then api and worker integration tests
+        run: npm run test:integration:backend
+
+  image:
+    name: ${{ matrix.image }} image
+    needs: changes
+    if: needs.changes.outputs.has_images == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the image (not pushed)
+        run: docker build --file "infra/docker/${{ matrix.image }}.Dockerfile" --tag "equipdemo-${{ matrix.image }}:ci-${{ github.run_number }}" .
+
+      - name: Image runs as a non-root user
+        run: |
+          user=$(docker image inspect --format '{{.Config.User}}' "equipdemo-${{ matrix.image }}:ci-${{ github.run_number }}")
+          [ "$user" = "node" ] || { echo "::error title=Image user::expected node, got '${user}'"; exit 1; }
+          echo "✓ runs as ${user}"
+
+  result:
+    name: Units result
+    needs: [changes, unit, integration, image]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: All affected units passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: ${RESULTS}"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error title=Units::A unit job did not pass (${r})"; exit 1 ;; esac
+          done
+          echo "✓ All affected units passed (skipped = not affected by this change)"

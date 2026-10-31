@@ -1,0 +1,19 @@
+{
+  "name": "@equipdemo/workforce-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workforce mobile app: domain logic and API access (no native shell yet, see README). Talks to the api only through @equipdemo/contracts.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@equipdemo/config": "*",
+    "@equipdemo/contracts": "*",
+    "typescript": "^5.8.3",
+    "vitest": "3.2.7"
+  }
+}

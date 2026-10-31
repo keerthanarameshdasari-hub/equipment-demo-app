@@ -1,0 +1,21 @@
+# Docker build context is the repository root (see infra/docker/*.Dockerfile).
+**/node_modules
+**/dist
+**/coverage
+.git
+.github
+android
+ios
+docs
+__tests__
+__integration__
+.env
+.env.*
+**/.env
+**/.env.*
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pem
+*.key

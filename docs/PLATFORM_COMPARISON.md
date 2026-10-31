@@ -9,7 +9,7 @@ setup and cost, and the time is limited. Its capabilities are compared from docu
 
 ## 1. The representative workflow, on both platforms
 
-| Step | GitHub Actions | AWS CodeBuild (`aws/codebuild-comparison.yaml`) |
+| Step | GitHub Actions | AWS CodeBuild (`infra/aws/codebuild-comparison.yaml`) |
 |---|---|---|
 | Source revision | Commit of the run (`actions/checkout`) | Exact commit via `SOURCE_COMMIT` (public `git fetch`, no credentials) |
 | Dependency installation | `npm ci` (npm cache) | `npm ci` (no cache) |

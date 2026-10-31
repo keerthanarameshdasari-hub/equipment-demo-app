@@ -1,15 +1,11 @@
-/** An equipment record as stored in the `equipment` table. */
-export type Equipment = {
-  id: number;
-  name: string;
-  price_per_hour: number;
-};
+/**
+ * `Equipment` (a stored record) and `NewEquipment` (values needed to create one; the
+ * database assigns `id`) come from the shared API contract, so every unit agrees on
+ * the shape. Type-only: nothing from @equipdemo/contracts enters the mobile bundle.
+ */
+import type { Equipment, NewEquipment } from '@equipdemo/contracts';
 
-/** The values needed to create a record (the database assigns `id`). */
-export type NewEquipment = {
-  name: string;
-  price_per_hour: number;
-};
+export type { Equipment, NewEquipment };
 
 /** Raw text from the form, before validation. */
 export type EquipmentFormInput = {

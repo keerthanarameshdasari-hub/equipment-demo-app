@@ -1,0 +1,66 @@
+# Local development stack: PostgreSQL 17 + migrations + api + worker.
+#   cp infra/.env.example infra/.env     # then set POSTGRES_PASSWORD (local only, git-ignored)
+#   docker compose -f infra/compose.yaml up --build
+# Published ports bind to 127.0.0.1 only. The api is unauthenticated: never expose it publicly.
+name: equipdemo
+
+x-database-url: &database-url postgres://equipdemo:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env (see infra/.env.example)}@db:5432/equipdemo
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: equipdemo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env (see infra/.env.example)}
+      POSTGRES_DB: equipdemo
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U equipdemo -d equipdemo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot, controlled migration step; api and worker start only after it succeeds.
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/docker/api.Dockerfile
+    command: ["node", "dist/migrate.js"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/docker/api.Dockerfile
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: *database-url
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/docker/worker.Dockerfile
+    init: true
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

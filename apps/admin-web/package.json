@@ -1,0 +1,28 @@
+{
+  "name": "@equipdemo/admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Admin web console (React + Vite). Talks to the api only through @equipdemo/contracts.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@equipdemo/config": "*",
+    "@equipdemo/contracts": "*",
+    "@types/react": "~19.2.2",
+    "@types/react-dom": "19.2.7",
+    "typescript": "^5.8.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7"
+  }
+}

@@ -60,7 +60,7 @@ CloudFormation with IAM resources: `cloudformation:*` on the stack, `iam:CreateR
 these for a personal demo account. Cost: one Secrets Manager secret (about US$0.40/month) and negligible API calls.
 
 **Steps:**
-1. AWS Console → **CloudFormation** → **Create stack** → *Upload a template file* → `aws/secrets-demo-oidc.yaml`.
+1. AWS Console → **CloudFormation** → **Create stack** → *Upload a template file* → `infra/aws/secrets-demo-oidc.yaml`.
 2. Stack name `equipdemo-secrets-demo`. Keep the defaults. Set **CreateOidcProvider = false** only if the
    account already has the `token.actions.githubusercontent.com` identity provider.
 3. Tick *"I acknowledge that AWS CloudFormation might create IAM resources with custom names"* → **Submit**.

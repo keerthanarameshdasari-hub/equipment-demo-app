@@ -106,3 +106,13 @@ cd android && ./gradlew assembleDebug -PbundleJsInDebug -PreactNativeArchitectur
 |---|---|
 | Successful run (checks + APK) | [39160037754](https://github.com/keerthanarameshdasari-hub/equipment-demo-app/actions/runs/39160037754): 40/40 tests; artifact `equipdemo-v1.1.0-debug-a0bb8e8` (28.8 MB zip); checks 40 s, APK 9 min |
 | Failing check fails the workflow | [39159571609](https://github.com/keerthanarameshdasari-hub/equipment-demo-app/actions/runs/39159571609): deliberately failing test (commit `4675924`) → tests step failed, workflow failed, Android job skipped, test reports still uploaded. Reverted in `a0bb8e8` |
+
+## Workspace units (`units.yml`) and path-aware scoping
+
+The units under `apps/`, `packages/` and `infra/` have their own workflow, `units.yml`: boundary gate,
+per-unit lint/typecheck/test/build (matrix), api + worker integration tests on PostgreSQL 17, and
+api/worker image builds, reported as one `Units result` check. On pull requests only affected units run
+(`scripts/ci/changed-units.js`); in `ci.yml` the `v1-compat` and `android` jobs are skipped when a pull
+request does not affect customer-mobile. Pushes to `main`, manual runs and `release.yml` always run
+everything. Details: [MONOREPO.md](MONOREPO.md#ci).
+

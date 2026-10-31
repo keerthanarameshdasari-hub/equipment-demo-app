@@ -1,0 +1,21 @@
+{
+  "name": "@equipdemo/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared HTTP API contract: types, JSON Schemas, routes, error envelope, events and a typed fetch client. Platform-neutral, no runtime dependencies.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vitest": "3.2.7"
+  }
+}

@@ -134,7 +134,7 @@ and CI fails if Android, iOS and `package.json` disagree.
 | No secrets for fork PRs; no `pull_request_target` | **IMPLEMENTED** | workflow triggers |
 | Masking: values never printed; AWS values `::add-mask::` | **IMPLEMENTED** | `secrets-demo.yml` |
 | AWS via GitHub OIDC (15-minute credentials, one-secret IAM role) | **NOT COMPLETED**: the role and secret were created, but an AWS Organizations SCP denies creating the OIDC provider. Long-lived keys were deliberately **not** used instead | SECRETS.md "Result" |
-| CodeBuild service role: logs and one S3 bucket only; bucket encrypted, private, 30-day expiry | **IMPLEMENTED** | `aws/codebuild-comparison.yaml` |
+| CodeBuild service role: logs and one S3 bucket only; bucket encrypted, private, 30-day expiry | **IMPLEMENTED** | `infra/aws/codebuild-comparison.yaml` |
 | Store credentials, passed only if `REAL_PUBLISHING_ENABLED=true` | **DOCUMENTED** (no store accounts) | PUBLISHING.md |
 | Release signing | **SIMULATED**: release APKs are signed with the Android **debug key** (internal only). A real upload key / Play App Signing is **NOT COMPLETED** | RELEASES.md §7 |
 

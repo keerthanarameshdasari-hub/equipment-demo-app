@@ -1,0 +1,20 @@
+{
+  "name": "@equipdemo/infra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Infrastructure definitions: container images, local compose stack and AWS CloudFormation templates, with policy tests.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "node -e \"console.log('infra: nothing to compile; templates are deployed as-is and validated by npm test')\"",
+    "compose:config": "docker compose -f compose.yaml config --quiet"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.3",
+    "vitest": "3.2.7",
+    "yaml": "2.9.1"
+  }
+}

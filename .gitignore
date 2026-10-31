@@ -65,7 +65,7 @@ yarn-error.*
 !.env.example
 
 # testing / typescript
-/coverage
+coverage/
 *.tsbuildinfo
 
 # CI outputs

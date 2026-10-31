@@ -1,4 +1,21 @@
-equipDemo is a **bare React Native** app (React Native CLI, no Expo) with TypeScript and a Supabase backend.
+equipDemo is an **npm workspaces monorepo**. The repository root is the `customer-mobile` unit, a
+**bare React Native** app (React Native CLI, no Expo) with TypeScript and a Supabase backend. Other
+units: `apps/api` (Fastify + PostgreSQL), `apps/worker`, `apps/admin-web`, `apps/workforce-mobile`,
+`packages/contracts`, `packages/config`, `infra`. See `docs/MONOREPO.md`.
+
+## Monorepo rules
+
+- Unit list and allowed dependencies: `scripts/boundaries/units.js`. Run `npm run check:boundaries`.
+- Frontends (customer-mobile, workforce-mobile, admin-web) must not import backend internals
+  (`@equipdemo/api`, `@equipdemo/worker`, `apps/api/**`, `apps/worker/**`) or server libraries
+  (`fastify`, `knex`, `pg`). They use `@equipdemo/contracts`.
+- api and worker never import each other; they communicate through the outbox contract.
+- `packages/*` have no runtime dependencies and import no other unit.
+- Import other units by package name only; no deep imports, no `../../` across unit folders.
+- Every workspace defines `lint`, `typecheck`, `test` and `build`. Validate env vars with
+  `@equipdemo/config` (mark secrets `secret: true`; frontends use `loadPublicConfig`).
+- Do not move the React Native app out of the root without a dedicated, CI-verified change.
+- Before declaring a task done: `npm run verify` (and `npm run test:integration:backend` when api or worker changed).
 
 ## Project rules
 
@@ -20,6 +37,8 @@ npm run typecheck      # tsc --noEmit
 npm run lint           # ESLint
 cd android && ./gradlew assembleRelease   # release APK (signed with the debug key; demo only)
 npm run version:set X.Y.Z  # change the app version (package.json, lockfile, iOS) - never edit by hand
+npm run verify         # every unit: lint, boundaries, typecheck, tests, builds
+npm run test -w @equipdemo/api   # one workspace unit
 ```
 
 ## Versions and releases
@@ -38,6 +57,7 @@ Run tests and typecheck before declaring any task done.
 - `babel.config.js` inlines ONLY allow-listed variables into the bundle. Never add server-side
   secrets (service-role keys, AWS credentials) to that list or to the app.
 - `.env` files, keystores and signing certificates are git-ignored and must stay out of the repo.
+  Each unit documents its variables in its own `.env.example` (placeholders only).
 
 ## Data layer
 

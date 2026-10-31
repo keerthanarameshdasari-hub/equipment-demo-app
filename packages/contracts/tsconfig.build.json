@@ -1,0 +1,12 @@
+{
+  "//": "Proves the package compiles standalone and emits declarations. Consumers use the TypeScript source via package exports.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}
